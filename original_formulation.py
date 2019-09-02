@@ -1,4 +1,7 @@
 from gurobipy import *
+from functools import reduce
+from itertools import combinations
+from math import log
 
 def parse_number(number_string: str):
     try:
@@ -6,6 +9,21 @@ def parse_number(number_string: str):
     except TypeError:
         return float(number_string)
 
+def factorial(n: int) -> int:
+    if n < 0:
+        return -1
+    elif n == 0:
+        return 1
+    else:
+        return n * factorial(n - 1)
+
+def binomial_coefficient(n: int, k: int) -> int:
+    k_range = range(1, k + 1)
+    return reduce((lambda x, y: x * y), 
+            map((lambda i: (n + 1 - i) / i), k_range))
+
+def get_subsets_of_size(all_elements: Iterable, size: int) -> Iterable:
+    return combinations(all_elements, size)
 
 class Dataset():
     def __init__(self, variables, variable_sizes):
@@ -17,9 +35,10 @@ class Dataset():
     def p_of(self, variable: int, value) -> float:
         return self.variables[variable].count(value) / self.num_observations
 
-    def posterior_p_of(self, variable: int, value, evidence: int, e_value) -> float:
+    def conditional_p_of(self, variable: int, value, evidence: [int], e_values: []) -> float:
         return [
-            self.variables[variable] for e in self.variables[evidence] if e == e_value
+            self.variables[variable][observation] for observation in range(self.num_observations) 
+                    if all(self.variables[e][observation] == e_value[s] for e in evidence)
         ].count(value) / self.num_observations
 
 def parse_dataset(file_name: str) -> Dataset:
@@ -55,5 +74,28 @@ def parse_dataset(file_name: str) -> Dataset:
 
 dataset = parse_dataset('data/mildew_10000.data')
 
-for i in range(3):
-    print(dataset.p_of(0, i))
+def solve(data: Dataset, parent_set_lim: int):
+    variables = range(data.num_variables)
+    num_parent_sets = binomial_coefficient(data.num_variables, parent_set_lim)
+    parent_sets = [s for s in get_subsets_of_size(variables, parent_set_lim)]
+    score = {}
+
+    model = Model('Bayesian Network Learning')
+
+    I = { (W, u): model.addVar()
+            for W in parent_sets
+            for u in variables
+    }
+
+    model.setObjective(quicksum(quicksum(
+            score[W, u] * I[W, u]
+            for W in parent_sets for u in variables if (W, u) in I
+    )))
+
+    convexity_constraints = { u:
+        model.addConstr(quicksum(I[W, u] for W in w if (W, u) in I) == 1)
+    }
+
+    model.optimize()
+
+solve(dataset, 2)
