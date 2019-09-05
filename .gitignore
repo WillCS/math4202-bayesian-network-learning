@@ -1,4 +1,5 @@
 .vscode
-data
-papers
+/all_data
+/papers
+/gobnilp
 gurobi.log
