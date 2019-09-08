@@ -2,6 +2,8 @@ from gurobipy import *
 from functools import reduce
 from itertools import combinations
 from math import log
+import random
+random.seed(13)
 
 def parse_number(number_string: str):
     try:
@@ -78,7 +80,7 @@ def solve(data: Dataset, parent_set_lim: int):
     variables = range(data.num_variables)
     num_parent_sets = binomial_coefficient(data.num_variables, parent_set_lim)
     parent_sets = [s for s in get_subsets_of_size(variables, parent_set_lim)]
-    score = {}
+    score = {(W,u):random.random() for W in parent_sets for u in variables}
 
     model = Model('Bayesian Network Learning')
 

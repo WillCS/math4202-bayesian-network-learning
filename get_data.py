@@ -15,7 +15,7 @@ download. It will only get files that have names that contain at least one arg.
 """
 
 URL = 'https://www.cs.york.ac.uk/aig/sw/gobnilp/data/'
-DATA_DIR_NAME = 'gobnilp'
+DATA_DIR_NAME = 'data'
 
 files: Response = get(URL)
 
