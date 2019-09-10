@@ -1,6 +1,7 @@
 from gurobipy import *
 from functools import reduce
 from itertools import combinations
+from itertools import chain
 from math import log
 import random
 random.seed(13)
@@ -25,7 +26,10 @@ def binomial_coefficient(n: int, k: int) -> int:
             map((lambda i: (n + 1 - i) / i), k_range))
 
 def get_subsets_of_size(all_elements: Iterable, size: int) -> Iterable:
-    return combinations(all_elements, size)
+    x = combinations(all_elements, 0)
+    for i in range(1,size+1):
+        x = chain(x, combinations(all_elements, i))
+    return x
 
 class Dataset():
     def __init__(self, variables, variable_sizes):
@@ -74,30 +78,42 @@ def parse_dataset(file_name: str) -> Dataset:
     except FileNotFoundError:
         print(f'File not found: {file_name}')
 
-dataset = parse_dataset('data/mildew_10000.data')
+dataset = parse_dataset('data/mildew_100.data')
 
 def solve(data: Dataset, parent_set_lim: int):
     variables = range(data.num_variables)
     num_parent_sets = binomial_coefficient(data.num_variables, parent_set_lim)
     parent_sets = [s for s in get_subsets_of_size(variables, parent_set_lim)]
+    emptyset = parent_sets[0]
     score = {(W,u):random.random() for W in parent_sets for u in variables}
 
     model = Model('Bayesian Network Learning')
 
-    I = { (W, u): model.addVar()
+    #cant have a thing be it's own parent
+    I = { (W, u): model.addVar(vtype=GRB.BINARY)
             for W in parent_sets
-            for u in variables
+            for u in variables if (not (u in W))
     }
 
-    model.setObjective(quicksum(quicksum(
+    model.setObjective(quicksum(
             score[W, u] * I[W, u]
             for W in parent_sets for u in variables if (W, u) in I
-    )))
+    ))
 
+    #only one parent set
     convexity_constraints = { u:
-        model.addConstr(quicksum(I[W, u] for W in w if (W, u) in I) == 1)
+        model.addConstr(quicksum(I[W, u] for W in parent_sets if (W, u) in I) == 1) for u in variables
     }
+        
+    #need one var with no parent for DAG
+    sink_constraint = model.addConstr(quicksum(I[emptyset, u] for u in variables) >= 0.99)
 
     model.optimize()
+    
+    result = [(W,u) for W in parent_sets for u in variables if (W, u) in I and I[W, u].x > 0]
+    result.sort(key = lambda x:x[1])
+    print(result)
+    
+    
 
 solve(dataset, 2)
