@@ -78,7 +78,7 @@ def parse_dataset(file_name: str) -> Dataset:
     except FileNotFoundError:
         print(f'File not found: {file_name}')
 
-dataset = parse_dataset('data/mildew_100.data')
+dataset = parse_dataset('all_data/mildew_10000.data')
 
 def solve(data: Dataset, parent_set_lim: int):
     variables = range(data.num_variables)
@@ -102,11 +102,13 @@ def solve(data: Dataset, parent_set_lim: int):
 
     #only one parent set
     convexity_constraints = { u:
-        model.addConstr(quicksum(I[W, u] for W in parent_sets if (W, u) in I) == 1) for u in variables
+        model.addConstr(quicksum(I[W, u] for W in parent_sets if (W, u) in I) == 1)
+        for u in variables
     }
         
     #need one var with no parent for DAG
     sink_constraint = model.addConstr(quicksum(I[emptyset, u] for u in variables) >= 0.99)
+    # ^ We'll replace this with the delayed cluster constraint generation
 
     model.optimize()
     
