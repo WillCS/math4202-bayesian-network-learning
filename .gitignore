@@ -3,3 +3,6 @@
 /papers
 /gobnilp
 gurobi.log
+
+# pycharm shenanigans
+.idea/

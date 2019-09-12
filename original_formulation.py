@@ -78,7 +78,7 @@ def parse_dataset(file_name: str) -> Dataset:
     except FileNotFoundError:
         print(f'File not found: {file_name}')
 
-dataset = parse_dataset('all_data/mildew_10000.data')
+dataset = parse_dataset('data/mildew_10000.data')
 
 def solve(data: Dataset, parent_set_lim: int):
     variables = range(data.num_variables)
@@ -114,8 +114,15 @@ def solve(data: Dataset, parent_set_lim: int):
     
     result = [(W,u) for W in parent_sets for u in variables if (W, u) in I and I[W, u].x > 0]
     result.sort(key = lambda x:x[1])
-    print(result)
-    
-    
+
+    print_parent_visualisation(result)
+
+
+def print_parent_visualisation(res):
+    for parent_child_set in res:
+        parents = parent_child_set[0]
+        child = parent_child_set[1]
+        print(child, '<-', *parents)
+
 
 solve(dataset, 2)
