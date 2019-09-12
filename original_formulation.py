@@ -85,7 +85,8 @@ def solve(data: Dataset, parent_set_lim: int):
     num_parent_sets = binomial_coefficient(data.num_variables, parent_set_lim)
     parent_sets = [s for s in get_subsets_of_size(variables, parent_set_lim)]
     emptyset = parent_sets[0]
-    score = {(W,u):random.random() for W in parent_sets for u in variables}
+
+    score = score_parents(parent_sets, variables)
 
     model = Model('Bayesian Network Learning')
 
@@ -116,6 +117,14 @@ def solve(data: Dataset, parent_set_lim: int):
     result.sort(key = lambda x:x[1])
 
     print_parent_visualisation(result)
+
+
+def score_parents(parent_sets, variable_set, scoring_type='RANDOM'):
+    if scoring_type == 'VALUE':
+        score = {(W, u): u for W in parent_sets for u in variable_set}
+    else:
+        score = {(W, u): random.random() for W in parent_sets for u in variable_set}
+    return score
 
 
 def print_parent_visualisation(res):
