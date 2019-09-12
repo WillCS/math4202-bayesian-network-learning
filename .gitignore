@@ -4,5 +4,8 @@
 /gobnilp
 gurobi.log
 
+# data 
+data/
+
 # pycharm shenanigans
 .idea/
