@@ -2,8 +2,9 @@ from gurobipy import *
 from functools import reduce
 from itertools import combinations
 from itertools import chain
-from math import log
+from math import log, lgamma
 import random
+import numpy as np
 random.seed(13)
 
 def parse_number(number_string: str):
@@ -33,6 +34,9 @@ def get_subsets_of_size(all_elements: Iterable, size: int) -> Iterable:
 
 class Dataset():
     def __init__(self, variables, variable_sizes):
+        #not this is a hyperparameter we can mess around with
+        self.sample_size = 10
+        
         self.variables = variables
         self.num_variables = len(variables)
         self.num_observations = len(variables[0])
@@ -78,7 +82,7 @@ def parse_dataset(file_name: str) -> Dataset:
     except FileNotFoundError:
         print(f'File not found: {file_name}')
 
-dataset = parse_dataset('all_data/mildew_10000.data')
+dataset = parse_dataset('data/mildew_10000.data')
 
 def solve(data: Dataset, parent_set_lim: int):
     variables = range(data.num_variables)
@@ -87,6 +91,7 @@ def solve(data: Dataset, parent_set_lim: int):
     emptyset = parent_sets[0]
 
     score = score_parents(parent_sets, variables)
+    score = bdeu_scores(data,variables,parent_sets)
 
     model = Model('Bayesian Network Learning')
 
@@ -169,13 +174,42 @@ def find_cutting_plane(variable_range, parent_sets, solution_set):
     return quicksum(I[W, u] for W in parent_set_range for u in variable_range if (W, u) in I) >= 1
 
 
-def score_parents(parent_sets, variable_set, scoring_type='RANDOM'):
+def score_parents(parent_sets, variable_set, scoring_type='RANDOM'):  
     if scoring_type == 'VALUE':
         score = {(W, u): u for W in parent_sets for u in variable_set}
     else:
         score = {(W, u): random.random() for W in parent_sets for u in variable_set}
     return score
 
+def bdeu_scores(data,variables, parent_sets):        
+    score_dict = {}
+    for variable in variables:        
+        for parent in parent_sets:
+            score = 0
+            conditional = 0
+            for x in parent:
+                conditional += dataset.variable_sizes[x]
+            score += (lgamma(data.sample_size / len(parent_sets)) - lgamma(conditional + data.sample_size / len(parent_sets)))
+            
+            obs = data.variables[variable]
+            obs_dict ={}
+            for i in range(len(obs)):
+                obsis = []
+                for y in parent:
+                    obsis.append(data.variables[y][i])
+                if not (tuple(obsis) in obs_dict):
+                    obs_dict[tuple(obsis)] = 0
+                else:
+                    ret_list = obs_dict[tuple(obsis)]
+                    ret_list += 1
+                    obs_dict[tuple(obsis)] = ret_list
+            for x in obs_dict.keys():
+                score += (lgamma(obs_dict[x] + data.sample_size / (len(parent_sets) * data.num_variables)) -
+                              lgamma(data.sample_size / (len(parent_sets) * data.num_variables)))
+                
+            score_dict[parent,variable] = log(score)
+        print(variable)
+    return score_dict
 
 def print_parent_visualisation(res):
     for parent_child_set in res:
@@ -183,5 +217,5 @@ def print_parent_visualisation(res):
         child = parent_child_set[1]
         print(child, '<-', *parents)
 
-
+dataset
 solve(dataset, 2)
