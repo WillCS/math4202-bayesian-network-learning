@@ -3,9 +3,21 @@ from functools import reduce
 from itertools import combinations
 from itertools import chain
 from math import log, lgamma
+import os
 import random
 import numpy as np
+import re
 random.seed(13)
+
+CACHE_DIR_NAME = 'cache'
+DATA_DIR_NAME = 'data'
+
+dataset_name = sys.argv[1]
+
+dataset_path = os.path.abspath(f'{DATA_DIR_NAME}/{dataset_name}')
+
+if not os.path.isfile(dataset_path):
+    raise FileNotFoundError('No dataset with that name was found.')
 
 def parse_number(number_string: str):
     try:
@@ -51,9 +63,9 @@ class Dataset():
                     if all(self.variables[e][observation] == e_value[s] for e in evidence)
         ].count(value) / self.num_observations
 
-def parse_dataset(file_name: str) -> Dataset:
+def parse_dataset(file_path) -> Dataset:
     try:
-        with open(file_name, 'r') as file:
+        with open(file_path, 'r') as file:
             line_num: int = 0
 
             num_variables: int = 0
@@ -80,9 +92,9 @@ def parse_dataset(file_name: str) -> Dataset:
 
             return Dataset(variables, variable_sizes)
     except FileNotFoundError:
-        print(f'File not found: {file_name}')
+        print(f'File not found: {file_path}')
 
-dataset = parse_dataset('data/mildew_10000.data')
+dataset = parse_dataset(dataset_path)
 
 def solve(data: Dataset, parent_set_lim: int):
     variables = range(data.num_variables)
@@ -90,7 +102,7 @@ def solve(data: Dataset, parent_set_lim: int):
     parent_sets = [s for s in get_subsets_of_size(variables, parent_set_lim)]
     emptyset = parent_sets[0]
 
-    score = score_parents(parent_sets, variables)
+    # score = score_parents(parent_sets, variables)
     score = bdeu_scores(data,variables,parent_sets)
 
     model = Model('Bayesian Network Learning')
@@ -181,7 +193,11 @@ def score_parents(parent_sets, variable_set, scoring_type='RANDOM'):
         score = {(W, u): random.random() for W in parent_sets for u in variable_set}
     return score
 
-def bdeu_scores(data,variables, parent_sets):        
+def bdeu_scores(data, variables, parent_sets):
+    num_parents = max(len(s) for s in parent_sets)
+    if scores_cached(num_parents):
+        return load_cached_scores(num_parents, variables, parent_sets)
+
     score_dict = {}
     for variable in variables:        
         for parent in parent_sets:
@@ -209,7 +225,51 @@ def bdeu_scores(data,variables, parent_sets):
                 
             score_dict[parent,variable] = log(score)
         print(variable)
+    
+    cache_scores(score_dict, num_parents)
+
     return score_dict
+
+def get_path_to_score_cache(parents: int) -> os.path:
+    return os.path.abspath(f'{CACHE_DIR_NAME}/{dataset_name}_{parents}p.scores')
+
+def scores_cached(parents: int) -> bool:
+    return os.path.isfile(get_path_to_score_cache(parents))
+
+def cache_scores(score_dict: {}, parents: int) -> None:
+    if scores_cached(parents):
+        raise FileExistsError(f'Scores already cached for {dataset_name}')
+    lines: [str] = []
+
+    for (W, u), score in score_dict.items():
+        new_line = f'{u} ({" ".join(str(w) for w in W)}): {score}\n'
+        lines.append(new_line)
+
+    with open(get_path_to_score_cache(parents), 'w') as score_file:
+        score_file.writelines(lines)
+
+def load_cached_scores(parents: int, variables, parent_sets):
+    if scores_cached(parents):
+        score_dict = {}
+        regex: re.Pattern = re.compile(r'(\d+) \((\d+(?: \d+)*)?\): (-?(?:.|\d)+)')
+
+        with open(get_path_to_score_cache(parents), 'r') as score_file:
+            for line in score_file:
+                results = regex.match(line)
+
+                if results:
+                    var, ps, score = results.group(1, 2, 3)
+
+                    if not ps:
+                        ps = parent_sets[0]
+                    else:
+                        ps = tuple([int(p) for p in ps.split(' ')])
+                    
+                    score_dict[ps, int(var)] = float(score)     
+
+        return score_dict
+    else:
+        raise FileNotFoundError('Cache Not found.')
 
 def print_parent_visualisation(res):
     for parent_child_set in res:
@@ -217,5 +277,4 @@ def print_parent_visualisation(res):
         child = parent_child_set[1]
         print(child, '<-', *parents)
 
-dataset
 solve(dataset, 2)
