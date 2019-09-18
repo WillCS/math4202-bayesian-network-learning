@@ -5,7 +5,8 @@
 gurobi.log
 
 # data 
-data/
+/data/
+/cache/
 
 # pycharm shenanigans
 .idea/
