@@ -4,6 +4,8 @@
 /gobnilp
 gurobi.log
 
+__pycache__
+
 # data 
 /data/
 /cache/
