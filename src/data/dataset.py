@@ -27,7 +27,7 @@ class Dataset():
 
 def parse_dataset(file_name) -> Dataset:
     try:
-        dataset_path = os.path.abspath(f'{DATA_DIR_NAME}/{file_name}')
+        dataset_path = os.path.abspath(f'{file_name}')
 
         with open(dataset_path, 'r') as file:
             line_num: int = 0
