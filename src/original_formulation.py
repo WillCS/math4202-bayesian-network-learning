@@ -10,7 +10,7 @@ from math_utils import binomial_coefficient, factorial, get_subsets_of_size, par
 
 random.seed(13)
 
-dataset_name = sys.argv[1]
+dataset_name = "mildew_100.data"
 
 dataset = parse_dataset(dataset_name)
 
@@ -20,7 +20,7 @@ def solve(data: Dataset, parent_set_lim: int):
     parent_sets = [s for s in get_subsets_of_size(variables, parent_set_lim)]
     emptyset = parent_sets[0]
 
-    # score = score_parents(parent_sets, variables)
+    #score = score_parents(parent_sets, variables)
     score = bdeu_scores(data, variables, parent_sets)
 
     model = Model('Bayesian Network Learning')
@@ -28,28 +28,35 @@ def solve(data: Dataset, parent_set_lim: int):
     # Linear variables because we really only care about the linear relaxation
     I = { (W, u): model.addVar()
             for W in parent_sets
-            for u in variables
+            for u in variables if not u in W
     }
 
     model.setObjective(quicksum(score[W, u] * I[W, u]
-            for W in parent_sets 
-            for u in variables
+            for (W,u) in I.keys()
     ))
 
     # Only one parent set
     convexity_constraints = { u:
-            model.addConstr(quicksum(I[W, u] for W in parent_sets) == 1)
+            model.addConstr(quicksum(I[W, u] for W in parent_sets if (W,u) in I) == 1)
             for u in variables
     }
     
     result = {}
     last_obj_value = 0
-
-    while True:
+    cluster = {}
+    cluster_constrs = {}
+#    while True:
+    for i in range(1):
+        try:
+            last_graph = set([(u,W) for (W,u) in I.keys() if I[W,u].x > 0.0001])
+        except:
+            last_graph = set()
+        model.reset()
         model.optimize()
+        print(set([(u,W) for (W,u) in I.keys() if I[W,u].x > 0.0001]).difference(last_graph))
 
-        if abs(last_obj_value - model.objVal) < 0.000000001:
-            break
+#        if abs(last_obj_value - model.objVal) < 0.000000001:
+#            break
 
         last_obj_value = model.objVal
 
@@ -57,56 +64,135 @@ def solve(data: Dataset, parent_set_lim: int):
             exit(0)
 
         result = { (W, u): I[W, u].x 
-                for W in parent_sets
-                for u in variables
+                for (W,u) in I.keys()
         }
-
+        graph = {u:W for (W,u) in result.keys() if result[W,u] > 0.0001}
+        if not cycles(graph,variables):
+            print(done)
+            break
+#        print()
+#        print(result)
         new_cluster = find_cluster(variables, parent_sets, result)
-
-        model.addConstr(quicksum(I[W, u] for u in new_cluster for W in parent_sets if intersection_size(W, new_cluster) < 1) >= 1)
-
+        
+        if tuple(new_cluster) in cluster:
+            constr = cluster[tuple(new_cluster)] + 1
+            model.addConstr(quicksum(I[W, u] for u in new_cluster for W in parent_sets if intersection_size(W,new_cluster) < 1) >= constr)
+            cluster[tuple(new_cluster)] = constr
+            print(constr)
+            print(new_cluster)
+        else:
+            model.addConstr(quicksum(I[W, u] for u in new_cluster for W in parent_sets if intersection_size(W,new_cluster) < 1) >= 1)
+            print(str(tuple(new_cluster)) + "added")
+            cluster[tuple(new_cluster)] = 1
+            print(cluster)
+            print("now")
         # model.addConstr(quicksum(I[W, u] for u in new_cluster for W in parent_sets if not intersects(W, new_cluster) < 2) >= 2)
 
+        result = { (W, u): I[W, u].x 
+            for (W,u) in I.keys()
+    }
+    result = [(W,u) for (W,u) in result.keys() if result[W,u] > 0.001]
+    for x in result:
+        generatecolummnsA(x,model,variables,parent_sets,score,data)
+    #print_parent_visualisation(result)
 
-    print_parent_visualisation(result)
+
+def generatecolummnsA(startingpt, model):
+    
+
+
+
+def cycles(graph,variables):
+    q = []   
+    q.append(variables[0])
+    var_set = set(variables)
+    seen = set()
+    while q:
+        x = q.pop(0)
+        if x in seen:
+            return True
+        seen.add(x)
+        var_set.remove(x)
+        for y in graph[x]:
+            if y in seen:
+                return True
+            q.append(y)
+    if var_set:
+         return cycles(graph,list(var_set))
+        
+    return False
 
 def find_cluster(variable_range, parent_sets, solution_set):
     cutting_plane_model: Model = Model('Cutting Plane')
     parent_set_range = range(len(parent_sets))
-    empty_set = parent_sets[0]
+    empty_set = ()
+    parents_lenght = 3
 
     # J(W -> u) variables for sub problem
     J = { (W, u): cutting_plane_model.addVar(vtype = GRB.BINARY)
         for W in parent_sets
         for u in variable_range if (W, u) in solution_set
     }
+    
+    K = { (empty_set, u): cutting_plane_model.addVar(vtype = GRB.BINARY)
+        for u in variable_range
+    }
+    
+    K_conts = { (empty_set, u): cutting_plane_model.addConstr(K[empty_set, u] == 1 - J[empty_set, u])
+        for u in variable_range
+    }
+    
+    L = { (W, u): cutting_plane_model.addVar(vtype = GRB.BINARY)
+        for W in parent_sets
+        for u in variable_range if (W, u) in solution_set
+    }
+    
+    
 
     cutting_plane_model.setObjective(quicksum(
         solution_set[W, u] * J[W, u]
         for W in parent_sets
-        for u in variable_range if (W, u) in J
-    ), GRB.MAXIMIZE)
+        for u in variable_range if (W, u) in solution_set
+    ), GRB.MINIMIZE)
 
     # Objective value must be strictly less than 1
     cutting_plane_model.addConstr(quicksum(
         solution_set[W, u] * J[W, u]
         for W in parent_sets
-        for u in variable_range if (W, u) in J
-    ) <= 0.9999999999)
-    
-
+        for u in variable_range if (W, u) in solution_set
+    ) <= 0.989)
+#    print([solution_set[W,u] for (W,u) in solution_set.keys() if solution_set[W,u] > 0.001])
+#    print([(W,u) for (W,u) in solution_set.keys() if solution_set[W,u] > 0.001])
     # If J[empty_set, u] == 1 then u is in the cluster.
     # These constraints come from (8) in the paper
     acyclicity_constraints = { (W, u): cutting_plane_model.addConstr(
-            J[W, u] == J[W, u] * (J[empty_set, u] + quicksum(J[empty_set, u_prime] for u_prime in W)))
+            J[W, u] <= J[empty_set, u] )
             for W in parent_sets
-            for u in variable_range if (W, u) in J
+            for u in variable_range if (W, u) in solution_set
     }
+    
+    acyclicity_constraints2 = { (W, u): cutting_plane_model.addGenConstrAnd( 
+            L[W, u], [K[empty_set,u_] for u_ in W],"andconstr")
+            for W in parent_sets
+            for u in variable_range if (W, u) in solution_set
+    }
+    
+    acyclicity_constraints3 = { (W, u): cutting_plane_model.addConstr(
+            J[W, u] <= L[W, u] )
+            for W in parent_sets
+            for u in variable_range if (W, u) in solution_set
+    }
+    
+    
+    cutting_plane_model.addConstr(
+            quicksum(J[empty_set, u] for u in variable_range) >= 2 )
 
     cutting_plane_model.optimize()
 
-    new_cluster = [u for u in variable_range if
-            sum(J[W, u].x for W in parent_sets if (W, u) in J) > 0]
+    new_cluster = [u for u in variable_range if J[(), u].x > 0.99]
+    
+    print(new_cluster)
+    print("cluster")
 
     return new_cluster
 
