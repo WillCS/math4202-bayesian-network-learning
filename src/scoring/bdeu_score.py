@@ -10,11 +10,11 @@ from .caching import are_scores_cached, load_cached_scores, cache_scores
 
 def bdeu_scores(dataset, variables, parent_sets):
     num_parents = max(len(s) for s in parent_sets)
-#    if are_scores_cached(dataset.dataset_name, num_parents):
-#        return load_cached_scores(dataset.dataset_name, num_parents, variables, parent_sets)
+    if are_scores_cached(dataset.dataset_name, num_parents):
+       return load_cached_scores(dataset.dataset_name, num_parents, variables, parent_sets)
 
     score_dict = {}
-    for variable in variables:        
+    for variable in variables:
         for parent in parent_sets:
             if parent:
                 combo= []
@@ -41,9 +41,10 @@ def bdeu_scores(dataset, variables, parent_sets):
             score_dict[parent,variable] = score
         print(variable)
     
-    #cache_scores(dataset.dataset_name, score_dict, num_parents)
+    cache_scores(dataset.dataset_name, score_dict, num_parents)
 
     return score_dict
+
 
 def bdeu_scores_sig(dataset,variable,parent):
     print(variable)

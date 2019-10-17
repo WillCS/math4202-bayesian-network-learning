@@ -6,6 +6,8 @@ import numpy as np
 import heapq
 import itertools
 from scoring import bdeu_scores,bdeu_scores_sig
+import argparse
+from scoring import bdeu_scores
 from data import Dataset, parse_dataset
 from timeit import default_timer as timer
 from scipy.special import comb
@@ -16,8 +18,11 @@ random.seed(13)
 dataset_name = "mildew_100.data"
 
 dataset = parse_dataset(dataset_name)
+# dataset_name = "Mildew_1000.data"
+#
+# dataset = parse_dataset(dataset_name)
 
-def solve(data: Dataset, parent_set_lim: int, col = False):
+def solve(data: Dataset, parent_set_lim: int, approach='original'):
     variables = range(data.num_variables)
     num_parent_sets = binomial_coefficient(data.num_variables, parent_set_lim)
     parent_sets = [s for s in get_subsets_of_size(variables, parent_set_lim)]
@@ -38,7 +43,6 @@ def solve(data: Dataset, parent_set_lim: int, col = False):
     model.setObjective(quicksum(score[W, u] * I[W, u]
             for (W,u) in I.keys()
     ),GRB.MAXIMIZE)
-    
 
     # Only one parent set
     convexity_constraints = { u:
@@ -67,16 +71,12 @@ def solve(data: Dataset, parent_set_lim: int, col = False):
     clist = None
     while True:
         while True:
-            print(i)
             try:
                 last_graph = set([(u,W) for (W,u) in I.keys() if I[W,u].x > 0.01 ])
             except:
                 last_graph = set()
             model.reset()
             model.optimize()
-
-                
-    
     
             last_obj_value = model.objVal
     
@@ -121,6 +121,17 @@ def solve(data: Dataset, parent_set_lim: int, col = False):
 #                result += comb(data.num_variables - len(clist),i)
 #            print(result)
     if col:
+=======
+            new_cluster = find_cluster(variables, parent_sets, result)
+            
+
+            i += 1
+            for x in new_cluster:
+                cluster.append(x)
+                model.addLConstr(quicksum(I[W, u] for u in x for W in parent_sets if intersection_size(W,x) < 1), GRB.GREATER_EQUAL, 1)
+                model.addLConstr(quicksum(I[W, u] for u in x for W in parent_sets if intersection_size(W,x) < 2), GRB.GREATER_EQUAL, 2)
+    if approach=='colgen':
+>>>>>>> 072c3a2405f03cc05bcced66ca5a3cc3f7cc4285
         result = {}
         result = { (W, u): I[W, u].x 
             for (W,u) in I.keys()
@@ -221,7 +232,12 @@ def cycles(graph,variables):
         
     return False
 
+<<<<<<< HEAD
 def find_cluster(variable_range, parent_sets, solution_set,noset = None):
+=======
+
+def find_cluster(variable_range, parent_sets, solution_set):
+>>>>>>> 072c3a2405f03cc05bcced66ca5a3cc3f7cc4285
     cutting_plane_model: Model = Model('Cutting Plane')
     parent_set_range = range(len(parent_sets))
     empty_set = ()
@@ -289,11 +305,14 @@ def find_cluster(variable_range, parent_sets, solution_set,noset = None):
         cluster.add(new_cluster)
     return cluster
 
+
 def intersects(W, cluster) -> int:
     return 1 if len([v for v in cluster if v in W]) == 0 else 0
 
+
 def intersection_size(W, cluster) -> int:
     return len([v for v in cluster if v in W])
+
 
 def score_parents(parent_sets, variable_set, scoring_type='RANDOM',scordict = None):  
     if scordict:
@@ -307,10 +326,34 @@ def score_parents(parent_sets, variable_set, scoring_type='RANDOM',scordict = No
         score = {(W, u): random.random() for W in parent_sets for u in variable_set}
     return score
 
+
 def print_parent_visualisation(res):
     for parent_child_set in res:
         parents = parent_child_set[0]
         child = parent_child_set[1]
         print(child, '<-', *parents)
 
+<<<<<<< HEAD
 reslut = solve(dataset, 2)
+=======
+
+def main(data_dir, approach, parent_limit):
+    dataset = parse_dataset(data_dir)
+    solve(dataset, parent_limit, approach)
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description="Implementation of exact bayesian network construction via integer programming")
+    parser.add_argument("-d", "--datadir", dest="datadir",
+                        help="Directory path containing data",
+                        metavar="FILE", default='data/Mildew_100.data')
+    parser.add_argument("-p", "--parentlimit", dest="parentlimit",
+                        help="limit to parent set size",
+                        metavar="INT", default=2)
+    parser.add_argument("-a", "--approach", dest="approach",
+                        help="approach to take",
+                        metavar="STR", default=None)
+
+    args = parser.parse_args()
+    main(args.datadir, args.approach, int(args.parentlimit))
+>>>>>>> 072c3a2405f03cc05bcced66ca5a3cc3f7cc4285
