@@ -1,18 +1,19 @@
 from gurobipy import *
-
+#to beat 7199.273589439852
 import os
 import random
 import numpy as np
 import heapq
 import itertools
-
-from scoring import bdeu_scores
+from scoring import bdeu_scores,bdeu_scores_sig
 from data import Dataset, parse_dataset
+from timeit import default_timer as timer
+from scipy.special import comb
 from math_utils import binomial_coefficient, factorial, get_subsets_of_size, parse_number
 
 
 random.seed(13)
-dataset_name = "mildew_1000.data"
+dataset_name = "mildew_100.data"
 
 dataset = parse_dataset(dataset_name)
 
@@ -24,25 +25,24 @@ def solve(data: Dataset, parent_set_lim: int, col = False):
 
     #score = score_parents(parent_sets, variables)
     score = bdeu_scores(data, variables, parent_sets)
-    print(score)
 
     model = Model('Bayesian Network Learning')
 
     # Linear variables because we really only care about the linear relaxation
-    I = { (W, u): model.addVar()
+    I = { (W, u): model.addVar(vtype = GRB.BINARY)
             for W in parent_sets
             for u in variables
     }
-
+    
+    
     model.setObjective(quicksum(score[W, u] * I[W, u]
             for (W,u) in I.keys()
     ),GRB.MAXIMIZE)
     
-    print([score[(13,30),u] for u in variables])
 
     # Only one parent set
     convexity_constraints = { u:
-            model.addConstr(quicksum(I[W, u] for W in parent_sets if (W,u) in I) == 1)
+            model.addConstr(quicksum(I[W, u] for W in parent_sets) == 1)
             for u in variables
     }
         
@@ -51,25 +51,28 @@ def solve(data: Dataset, parent_set_lim: int, col = False):
     model.Params.CutPasses = 100000    # want to allow many cuts
     model.Params.GomoryPasses = 100000 # want to allow many cuts
     model.Params.MIPFocus = 2          # focus on proving optimality
-    model.Params.OutputFlag = 0
+    model.Params.OutputFlag = 1
         
     
     result = {}
     last_obj_value = 0
     cluster = []
+    cluster_const ={}
+    cluster_const2 = {}
 #    while True:
     plane = Model('Cutting Plane')
     i = 0
     exit1 = False
+    start = timer()
+    clist = None
     while True:
         while True:
             print(i)
             try:
-                last_graph = set([(u,W) for (W,u) in I.keys() if I[W,u].x > 0.0001])
+                last_graph = set([(u,W) for (W,u) in I.keys() if I[W,u].x > 0.01 ])
             except:
                 last_graph = set()
             model.reset()
-            print("here 1")
             model.optimize()
 
                 
@@ -80,17 +83,19 @@ def solve(data: Dataset, parent_set_lim: int, col = False):
             if model.status == GRB.Status.INFEASIBLE:
                 print("failed")
                 exit(0)
-            x = set([(u,W) for (W,u) in I.keys() if I[W,u].x > 0.0001]).difference(last_graph)
+            x = set([(u,W) for (W,u) in I.keys() if I[W,u].x > 0.001]).difference(last_graph)
             print(x)
             if not x:
                 result = {}
                 result = { (W, u): I[W, u].x 
                     for (W,u) in I.keys()
                 }
-                result = [(W,u) for (W,u) in result.keys() if result[W,u] > 0.001]
+                result = [(W,u) for (W,u) in result.keys() if result[W,u] > 0.01 ]
                 print_parent_visualisation(result)
                 print(model.objVal)
-                return
+                end = timer()
+                print(end - start)
+                return cluster
             
             
             
@@ -98,16 +103,23 @@ def solve(data: Dataset, parent_set_lim: int, col = False):
             result = { (W, u): I[W, u].x 
                     for (W,u) in I.keys()
             }
-            print("here 2")
+#            print("here 2")
             new_cluster = find_cluster(variables, parent_sets, result)
-            
-            print(new_cluster)
-            print("here 3")
-            i += 1
-            for x in new_cluster:
-                cluster.append(x)
-                model.addLConstr(quicksum(I[W, u] for u in x for W in parent_sets if intersection_size(W,x) < 1), GRB.GREATER_EQUAL, 1)
-                model.addLConstr(quicksum(I[W, u] for u in x for W in parent_sets if intersection_size(W,x) < 2), GRB.GREATER_EQUAL, 2)
+            if new_cluster:
+    #            print("here 3")
+                i += 1
+                for x in new_cluster:
+                    cluster.append(x)
+                    cluster_const[x] = model.addLConstr(quicksum(I[W, u] for u in x for W in parent_sets if intersection_size(W,x) < 1), GRB.GREATER_EQUAL, 1)
+                    cluster_const2[x] = model.addLConstr(quicksum(I[W, u] for u in x for W in parent_sets if intersection_size(W,x) < 2), GRB.GREATER_EQUAL, 2)
+                            
+                
+                        
+                
+#            result = 0
+#            for i in range(data.num_variables - len(clist)):
+#                result += comb(data.num_variables - len(clist),i)
+#            print(result)
     if col:
         result = {}
         result = { (W, u): I[W, u].x 
@@ -209,25 +221,30 @@ def cycles(graph,variables):
         
     return False
 
-def find_cluster(variable_range, parent_sets, solution_set):
+def find_cluster(variable_range, parent_sets, solution_set,noset = None):
     cutting_plane_model: Model = Model('Cutting Plane')
     parent_set_range = range(len(parent_sets))
     empty_set = ()
     parents_lenght = 3
 
-#     J(W -> u) variables for sub problem
-    J = { (W, u): cutting_plane_model.addVar(vtype = GRB.BINARY)
-        for (W,u) in solution_set.keys() if solution_set[W,u] > 0.01 
-    }
+    if not noset:
+    #     J(W -> u) variables for sub problem
+        J = { (W, u): cutting_plane_model.addVar(vtype = GRB.BINARY)
+            for (W,u) in solution_set.keys() if solution_set[W,u] > 0.01 
+        }
+    else:
+        J = { (W, u): cutting_plane_model.addVar(vtype = GRB.BINARY)
+            for (W,u) in solution_set.keys() if (solution_set[W,u] > 0.01 and not u in noset)
+        }
     
          
     K = { (u): cutting_plane_model.addVar(vtype = GRB.BINARY)
         for u in variable_range
     }
     
-    ksum = cutting_plane_model.addVar()
-    cutting_plane_model.addConstr(ksum == quicksum(K.values()))
-    ksum.BranchPriority = 100
+#    ksum = cutting_plane_model.addVar()
+#    cutting_plane_model.addConstr(ksum == quicksum(K.values()))
+#    ksum.BranchPriority = 100
     for u in variable_range:
         K[u].BranchPriority = 10
 
@@ -268,7 +285,7 @@ def find_cluster(variable_range, parent_sets, solution_set):
     cluster = set()
     for i in range(nsols):
         cutting_plane_model.Params.SolutionNumber = i
-        new_cluster = tuple([u for u in variable_range if K[u].x > 0.5])
+        new_cluster = tuple([u for u in variable_range if K[u].x >0.01 ])
         cluster.add(new_cluster)
     return cluster
 
@@ -296,4 +313,4 @@ def print_parent_visualisation(res):
         child = parent_child_set[1]
         print(child, '<-', *parents)
 
-solve(dataset, 2)
+reslut = solve(dataset, 2)
