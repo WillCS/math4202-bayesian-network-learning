@@ -3,6 +3,7 @@ from math_utils import parse_number
 
 DATA_DIR_NAME = 'data'
 
+
 class Dataset():
     def __init__(self, variables, variable_sizes):
         #not this is a hyperparameter we can mess around with
@@ -24,6 +25,7 @@ class Dataset():
             self.variables[variable][observation] for observation in range(self.num_observations) 
                     if all(self.variables[e][observation] == e_value[s] for e in evidence)
         ].count(value) / self.num_observations
+
 
 def parse_dataset(file_name) -> Dataset:
     try:

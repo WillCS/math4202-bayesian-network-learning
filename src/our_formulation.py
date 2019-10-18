@@ -1,25 +1,22 @@
 from gurobipy import *
-#to beat 7199.273589439852
-import os
 import random
-import numpy as np
-import heapq
 import itertools
 import argparse
-from scoring import bdeu_scores
+from scoring.bdeu_score import Scores
 from data import Dataset, parse_dataset
 from timeit import default_timer as timer
-from scipy.special import comb
 from math_utils import binomial_coefficient, factorial, get_subsets_of_size, parse_number
 
-
 random.seed(13)
-dataset_name = "mildew_100.data"
 
-dataset = parse_dataset(dataset_name)
-# dataset_name = "Mildew_1000.data"
+# class Problem():
+#     def __init__(self, dataset, parent_set_limit, scoring_approach):
+#         self.dataset = dataset
+#         self.parent_lim = parent_set_limit
+#         self.scoring_approach = scoring_approach
 #
-# dataset = parse_dataset(dataset_name)
+#     def score_dataset(self):
+#         return
 
 def solve(data: Dataset, parent_set_lim: int, approach='branching'):
     print('Using {} approach'.format(approach))
@@ -28,18 +25,17 @@ def solve(data: Dataset, parent_set_lim: int, approach='branching'):
     parent_sets = [s for s in get_subsets_of_size(variables, parent_set_lim)]
     emptyset = parent_sets[0]
 
-    #score = score_parents(parent_sets, variables)
-    score = bdeu_scores(data, variables, parent_sets)
+    score = Scores(data, 'bdeu', parent_sets).score('bdeu')
 
     model = Model('Bayesian Network Learning')
 
     # Linear variables because we really only care about the linear relaxation
-    I = { (W, u): model.addVar(vtype = GRB.BINARY)
+    I = { (W, u): model.addVar(vtype=GRB.BINARY)
             for W in parent_sets
             for u in variables
     }
-    
-    
+
+
     model.setObjective(quicksum(score[W, u] * I[W, u]
             for (W,u) in I.keys()
     ),GRB.MAXIMIZE)
@@ -49,15 +45,15 @@ def solve(data: Dataset, parent_set_lim: int, approach='branching'):
             model.addConstr(quicksum(I[W, u] for W in parent_sets) == 1)
             for u in variables
     }
-        
+
     model.ModelSense = -1      # maximise objective
     model.Params.PreCrush = 1  # since (always) adding cuts
     model.Params.CutPasses = 100000    # want to allow many cuts
     model.Params.GomoryPasses = 100000 # want to allow many cuts
     model.Params.MIPFocus = 2          # focus on proving optimality
     model.Params.OutputFlag = 0
-        
-    
+
+
     result = {}
     last_obj_value = 0
     cluster = []
@@ -173,7 +169,7 @@ def extend_path(nodeset,varset,score):
         if len(added) >=  10:
             return added
     return added
-                
+
 
 def d(node1,node2,scoredict):
     if not node2:
@@ -192,7 +188,7 @@ def d(node1,node2,scoredict):
 
 
 def cycles(graph,variables):
-    q = []   
+    q = []
     q.append(variables[0])
     var_set = set(variables)
     seen = set()
@@ -209,7 +205,7 @@ def cycles(graph,variables):
             q.append(y)
     if var_set:
          return cycles(graph,list(var_set))
-        
+
     return False
 
 
@@ -223,8 +219,8 @@ def find_cluster(variable_range, parent_sets, solution_set, approach='branching'
     J = { (W, u): cutting_plane_model.addVar(vtype = GRB.BINARY)
         for (W,u) in solution_set.keys() if (solution_set[W,u] > 0.01)
     }
-    
-         
+
+
     K = { (u): cutting_plane_model.addVar(vtype = GRB.BINARY)
         for u in variable_range
     }
@@ -253,13 +249,13 @@ def find_cluster(variable_range, parent_sets, solution_set, approach='branching'
             (1-J[W, u]) + quicksum(K[x] for x in W) >= 1 )
             for (W,u) in J.keys()
     }
-    
+
     acyclicity_constraints2 = { (W, u): cutting_plane_model.addLConstr(
             (1-J[W, u]) + K[u] >= 1 )
             for (W,u) in J.keys()
     }
-  
-#    
+
+#
     cutting_plane_model.addLConstr(
             quicksum(K[u] for u in variable_range) >= 2)
 
@@ -270,7 +266,7 @@ def find_cluster(variable_range, parent_sets, solution_set, approach='branching'
     cutting_plane_model.Params.PoolSearchMode = 1
 
     cutting_plane_model.optimize()
-    nsols = cutting_plane_model.Solcount 
+    nsols = cutting_plane_model.Solcount
     cluster = set()
     for i in range(nsols):
         cutting_plane_model.Params.SolutionNumber = i
@@ -287,7 +283,7 @@ def intersection_size(W, cluster) -> int:
     return len([v for v in cluster if v in W])
 
 
-def score_parents(parent_sets, variable_set, scoring_type='RANDOM',scordict = None):  
+def score_parents(parent_sets, variable_set, scoring_type='RANDOM',scordict = None):
     if scordict:
         for W in parent_sets:
             for u in variable_set:

@@ -6,7 +6,7 @@ import numpy as np
 import heapq
 import itertools
 
-from scoring import bdeu_scores,bdeu_scores_sig
+# from scoring import bdeu_scores,bdeu_scores_sig
 from data import Dataset, parse_dataset
 from math_utils import binomial_coefficient, factorial, get_subsets_of_size, parse_number
 
