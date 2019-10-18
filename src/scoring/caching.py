@@ -1,15 +1,21 @@
 import os
 import re
+from pathlib import Path
 
-CACHE_DIR_NAME = 'cache'
+CACHE_DIR_NAME = 'cached_scores'
+
 
 def get_path_to_score_cache(dataset_name: str, parents: int) -> os.path:
     return os.path.abspath(f'{CACHE_DIR_NAME}/{dataset_name}_{parents}p.scores')
 
-def are_scores_cached(dataset_name: str, parents: int) -> bool:
-    return os.path.isfile(get_path_to_score_cache(dataset_name, parents))
+
+def are_scores_cached(data_dir: str, parents: int) -> bool:
+    return os.path.isfile(get_path_to_score_cache(data_dir, parents))
+
 
 def cache_scores(dataset_name: str, score_dict: {}, parents: int) -> None:
+    os.makedirs('{}/{}'.format(CACHE_DIR_NAME, Path(dataset_name).parent), exist_ok=True)
+
     if are_scores_cached(dataset_name, parents):
         raise FileExistsError(f'Scores already cached for {dataset_name}')
     lines: [str] = []
@@ -20,6 +26,8 @@ def cache_scores(dataset_name: str, score_dict: {}, parents: int) -> None:
 
     with open(get_path_to_score_cache(dataset_name, parents), 'w') as score_file:
         score_file.writelines(lines)
+        print('Scores cached to: {}'.format(dataset_name))
+
 
 def load_cached_scores(dataset_name: str, parents: int, variables, parent_sets):
     if are_scores_cached(dataset_name, parents):

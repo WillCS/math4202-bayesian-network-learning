@@ -5,7 +5,6 @@ import random
 import numpy as np
 import heapq
 import itertools
-from scoring import bdeu_scores,bdeu_scores_sig
 import argparse
 from scoring import bdeu_scores
 from data import Dataset, parse_dataset
@@ -22,7 +21,8 @@ dataset = parse_dataset(dataset_name)
 #
 # dataset = parse_dataset(dataset_name)
 
-def solve(data: Dataset, parent_set_lim: int, approach='original'):
+def solve(data: Dataset, parent_set_lim: int, approach='branching'):
+    print('Using {} approach'.format(approach))
     variables = range(data.num_variables)
     num_parent_sets = binomial_coefficient(data.num_variables, parent_set_lim)
     parent_sets = [s for s in get_subsets_of_size(variables, parent_set_lim)]
@@ -101,7 +101,7 @@ def solve(data: Dataset, parent_set_lim: int, approach='original'):
                 for (W,u) in I.keys()
         }
 #            print("here 2")
-        new_cluster = find_cluster(variables, parent_sets, result)
+        new_cluster = find_cluster(variables, parent_sets, result, approach)
         if new_cluster:
 #            print("here 3")
             i += 1
@@ -111,45 +111,37 @@ def solve(data: Dataset, parent_set_lim: int, approach='original'):
                 cluster_const2[x] = model.addLConstr(quicksum(I[W, u] for u in x for W in parent_sets if intersection_size(W,x) < 2), GRB.GREATER_EQUAL, 2)
 
 
+    if approach == 'colgen':
+        result = {}
+        result = { (W, u): I[W, u].x
+            for (W,u) in I.keys()
+        }
+        result = [(W,u) for (W,u) in result.keys() if result[W,u] > 0.001]
+        print_parent_visualisation(result)
+        print(model.objVal)
+        return
+        variables_set = set()
+        for x in variables:
+            variables_set.add(x)
+        for x in result:
+            added = extend_path(x,variables_set,score)
+            for y in added:
+                    score_parents([y[0]],[y[1]],scordict=score)
+                    if not y in I:
+                        I[y]  = model.addVar(obj = 1)
+                    else:
+                        print(y)
+        model.setObjective(quicksum(score[W, u] * I[W, u]
+                for (W,u) in I.keys()
+        ),GRB.MAXIMIZE)
 
-
-#            result = 0
-#            for i in range(data.num_variables - len(clist)):
-#                result += comb(data.num_variables - len(clist),i)
-#            print(result)
-
-#     if col:
-#
-#         result = {}
-#         result = { (W, u): I[W, u].x
-#             for (W,u) in I.keys()
-#         }
-#         result = [(W,u) for (W,u) in result.keys() if result[W,u] > 0.001]
-#         print_parent_visualisation(result)
-#         print(model.objVal)
-#         return
-#         variables_set = set()
-#         for x in variables:
-#             variables_set.add(x)
-#         for x in result:
-#             added = extend_path(x,variables_set,score)
-#             for y in added:
-#                     score_parents([y[0]],[y[1]],scordict=score)
-#                     if not y in I:
-#                         I[y]  = model.addVar(obj = 1)
-#                     else:
-#                         print(y)
-#         model.setObjective(quicksum(score[W, u] * I[W, u]
-#                 for (W,u) in I.keys()
-#         ),GRB.MAXIMIZE)
-#
-#         convexity_constraints = { u:
-#                 model.addConstr(quicksum(I[W, u] for W in parent_sets if (W,u) in I) == 1)
-#                 for u in variables
-#         }
-#         for x in cluster:
-#             model.addLConstr(quicksum(I[W, u] for u in x for W in parent_sets if intersection_size(W,x) < 1), GRB.GREATER_EQUAL, 1)
-#             model.addLConstr(quicksum(I[W, u] for u in x for W in parent_sets if intersection_size(W,x) < 2), GRB.GREATER_EQUAL, 2)
+        convexity_constraints = { u:
+                model.addConstr(quicksum(I[W, u] for W in parent_sets if (W,u) in I) == 1)
+                for u in variables
+        }
+        for x in cluster:
+            model.addLConstr(quicksum(I[W, u] for u in x for W in parent_sets if intersection_size(W,x) < 1), GRB.GREATER_EQUAL, 1)
+            model.addLConstr(quicksum(I[W, u] for u in x for W in parent_sets if intersection_size(W,x) < 2), GRB.GREATER_EQUAL, 2)
 
 
 
@@ -221,7 +213,7 @@ def cycles(graph,variables):
     return False
 
 
-def find_cluster(variable_range, parent_sets, solution_set, ):
+def find_cluster(variable_range, parent_sets, solution_set, approach='branching'):
     cutting_plane_model: Model = Model('Cutting Plane')
     parent_set_range = range(len(parent_sets))
     empty_set = ()
@@ -236,10 +228,11 @@ def find_cluster(variable_range, parent_sets, solution_set, ):
     K = { (u): cutting_plane_model.addVar(vtype = GRB.BINARY)
         for u in variable_range
     }
-    
-    ksum = cutting_plane_model.addVar()
-    cutting_plane_model.addConstr(ksum == quicksum(K.values()))
-    ksum.BranchPriority = 100
+
+    if approach == 'branching':
+        ksum = cutting_plane_model.addVar()
+        cutting_plane_model.addConstr(ksum == quicksum(K.values()))
+        ksum.BranchPriority = 100
 
     for u in variable_range:
         K[u].BranchPriority = 10
@@ -281,7 +274,7 @@ def find_cluster(variable_range, parent_sets, solution_set, ):
     cluster = set()
     for i in range(nsols):
         cutting_plane_model.Params.SolutionNumber = i
-        new_cluster = tuple([u for u in variable_range if K[u].x >0.01 ])
+        new_cluster = tuple([u for u in variable_range if K[u].x > 0.01 ])
         cluster.add(new_cluster)
     return cluster
 
@@ -329,7 +322,7 @@ if __name__ == '__main__':
                         metavar="INT", default=2)
     parser.add_argument("-a", "--approach", dest="approach",
                         help="approach to take",
-                        metavar="STR", default=None)
+                        metavar="STR", default='branching')
 
     args = parser.parse_args()
     main(args.datadir, args.approach, int(args.parentlimit))

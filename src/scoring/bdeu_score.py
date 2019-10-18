@@ -1,12 +1,11 @@
 from math import lgamma, log
 
 import itertools
-
 from scipy.special import comb 
 
-import numpy as np
 
 from .caching import are_scores_cached, load_cached_scores, cache_scores
+
 
 def bdeu_scores(dataset, variables, parent_sets):
     num_parents = max(len(s) for s in parent_sets)
