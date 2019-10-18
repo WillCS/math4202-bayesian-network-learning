@@ -5,6 +5,9 @@
 gurobi.log
 
 __pycache__
+src/math_utils/__pycache__/
+src/data/__pycache__/
+src/scoring/__pycache__/
 
 # data 
 /data/

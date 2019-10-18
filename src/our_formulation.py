@@ -55,7 +55,7 @@ def solve(data: Dataset, parent_set_lim: int, approach='original'):
     model.Params.CutPasses = 100000    # want to allow many cuts
     model.Params.GomoryPasses = 100000 # want to allow many cuts
     model.Params.MIPFocus = 2          # focus on proving optimality
-    model.Params.OutputFlag = 1
+    model.Params.OutputFlag = 0
         
     
     result = {}
@@ -63,106 +63,94 @@ def solve(data: Dataset, parent_set_lim: int, approach='original'):
     cluster = []
     cluster_const ={}
     cluster_const2 = {}
-#    while True:
     plane = Model('Cutting Plane')
     i = 0
     exit1 = False
     start = timer()
     clist = None
     while True:
-        while True:
-            try:
-                last_graph = set([(u,W) for (W,u) in I.keys() if I[W,u].x > 0.01 ])
-            except:
-                last_graph = set()
-            model.reset()
-            model.optimize()
-    
-            last_obj_value = model.objVal
-    
-            if model.status == GRB.Status.INFEASIBLE:
-                print("failed")
-                exit(0)
-            x = set([(u,W) for (W,u) in I.keys() if I[W,u].x > 0.001]).difference(last_graph)
-            print(x)
-            if not x:
-                result = {}
-                result = { (W, u): I[W, u].x 
-                    for (W,u) in I.keys()
-                }
-                result = [(W,u) for (W,u) in result.keys() if result[W,u] > 0.01 ]
-                print_parent_visualisation(result)
-                print(model.objVal)
-                end = timer()
-                print(end - start)
-                return cluster
-            
-            
-            
+        try:
+            last_graph = set([(u,W) for (W,u) in I.keys() if I[W,u].x > 0.01 ])
+        except:
+            last_graph = set()
+        model.reset()
+        model.optimize()
+
+        last_obj_value = model.objVal
+
+        if model.status == GRB.Status.INFEASIBLE:
+            print("failed")
+            exit(0)
+        x = set([(u,W) for (W,u) in I.keys() if I[W,u].x > 0.001]).difference(last_graph)
+        if not x:
             result = {}
-            result = { (W, u): I[W, u].x 
-                    for (W,u) in I.keys()
+            result = { (W, u): I[W, u].x
+                for (W,u) in I.keys()
             }
+            result = [(W,u) for (W,u) in result.keys() if result[W,u] > 0.01 ]
+            print_parent_visualisation(result)
+            print(model.objVal)
+            end = timer()
+            print(end - start)
+            return cluster
+
+
+
+        result = {}
+        result = { (W, u): I[W, u].x
+                for (W,u) in I.keys()
+        }
 #            print("here 2")
-            new_cluster = find_cluster(variables, parent_sets, result)
-            if new_cluster:
-    #            print("here 3")
-                i += 1
-                for x in new_cluster:
-                    cluster.append(x)
-                    cluster_const[x] = model.addLConstr(quicksum(I[W, u] for u in x for W in parent_sets if intersection_size(W,x) < 1), GRB.GREATER_EQUAL, 1)
-                    cluster_const2[x] = model.addLConstr(quicksum(I[W, u] for u in x for W in parent_sets if intersection_size(W,x) < 2), GRB.GREATER_EQUAL, 2)
-                            
-                
-                        
-                
+        new_cluster = find_cluster(variables, parent_sets, result)
+        if new_cluster:
+#            print("here 3")
+            i += 1
+            for x in new_cluster:
+                cluster.append(x)
+                cluster_const[x] = model.addLConstr(quicksum(I[W, u] for u in x for W in parent_sets if intersection_size(W,x) < 1), GRB.GREATER_EQUAL, 1)
+                cluster_const2[x] = model.addLConstr(quicksum(I[W, u] for u in x for W in parent_sets if intersection_size(W,x) < 2), GRB.GREATER_EQUAL, 2)
+
+
+
+
 #            result = 0
 #            for i in range(data.num_variables - len(clist)):
 #                result += comb(data.num_variables - len(clist),i)
 #            print(result)
-    if col:
-=======
-            new_cluster = find_cluster(variables, parent_sets, result)
-            
 
-            i += 1
-            for x in new_cluster:
-                cluster.append(x)
-                model.addLConstr(quicksum(I[W, u] for u in x for W in parent_sets if intersection_size(W,x) < 1), GRB.GREATER_EQUAL, 1)
-                model.addLConstr(quicksum(I[W, u] for u in x for W in parent_sets if intersection_size(W,x) < 2), GRB.GREATER_EQUAL, 2)
-    if approach=='colgen':
->>>>>>> 072c3a2405f03cc05bcced66ca5a3cc3f7cc4285
-        result = {}
-        result = { (W, u): I[W, u].x 
-            for (W,u) in I.keys()
-        }
-        result = [(W,u) for (W,u) in result.keys() if result[W,u] > 0.001]
-        print_parent_visualisation(result)
-        print(model.objVal)
-        return
-        variables_set = set()
-        for x in variables:
-            variables_set.add(x)
-        for x in result:
-            added = extend_path(x,variables_set,score)
-            for y in added:
-                    score_parents([y[0]],[y[1]],scordict=score)
-                    if not y in I:
-                        I[y]  = model.addVar(obj = 1)
-                    else:
-                        print(y)
-        model.setObjective(quicksum(score[W, u] * I[W, u]
-                for (W,u) in I.keys()
-        ),GRB.MAXIMIZE)
-    
-        convexity_constraints = { u:
-                model.addConstr(quicksum(I[W, u] for W in parent_sets if (W,u) in I) == 1)
-                for u in variables
-        }
-        for x in cluster:
-            model.addLConstr(quicksum(I[W, u] for u in x for W in parent_sets if intersection_size(W,x) < 1), GRB.GREATER_EQUAL, 1)
-            model.addLConstr(quicksum(I[W, u] for u in x for W in parent_sets if intersection_size(W,x) < 2), GRB.GREATER_EQUAL, 2)
-        
+#     if col:
+#
+#         result = {}
+#         result = { (W, u): I[W, u].x
+#             for (W,u) in I.keys()
+#         }
+#         result = [(W,u) for (W,u) in result.keys() if result[W,u] > 0.001]
+#         print_parent_visualisation(result)
+#         print(model.objVal)
+#         return
+#         variables_set = set()
+#         for x in variables:
+#             variables_set.add(x)
+#         for x in result:
+#             added = extend_path(x,variables_set,score)
+#             for y in added:
+#                     score_parents([y[0]],[y[1]],scordict=score)
+#                     if not y in I:
+#                         I[y]  = model.addVar(obj = 1)
+#                     else:
+#                         print(y)
+#         model.setObjective(quicksum(score[W, u] * I[W, u]
+#                 for (W,u) in I.keys()
+#         ),GRB.MAXIMIZE)
+#
+#         convexity_constraints = { u:
+#                 model.addConstr(quicksum(I[W, u] for W in parent_sets if (W,u) in I) == 1)
+#                 for u in variables
+#         }
+#         for x in cluster:
+#             model.addLConstr(quicksum(I[W, u] for u in x for W in parent_sets if intersection_size(W,x) < 1), GRB.GREATER_EQUAL, 1)
+#             model.addLConstr(quicksum(I[W, u] for u in x for W in parent_sets if intersection_size(W,x) < 2), GRB.GREATER_EQUAL, 2)
+
 
 
 def extend_path(nodeset,varset,score):
@@ -232,35 +220,27 @@ def cycles(graph,variables):
         
     return False
 
-<<<<<<< HEAD
-def find_cluster(variable_range, parent_sets, solution_set,noset = None):
-=======
 
-def find_cluster(variable_range, parent_sets, solution_set):
->>>>>>> 072c3a2405f03cc05bcced66ca5a3cc3f7cc4285
+def find_cluster(variable_range, parent_sets, solution_set, ):
     cutting_plane_model: Model = Model('Cutting Plane')
     parent_set_range = range(len(parent_sets))
     empty_set = ()
     parents_lenght = 3
 
-    if not noset:
-    #     J(W -> u) variables for sub problem
-        J = { (W, u): cutting_plane_model.addVar(vtype = GRB.BINARY)
-            for (W,u) in solution_set.keys() if solution_set[W,u] > 0.01 
-        }
-    else:
-        J = { (W, u): cutting_plane_model.addVar(vtype = GRB.BINARY)
-            for (W,u) in solution_set.keys() if (solution_set[W,u] > 0.01 and not u in noset)
-        }
+
+    J = { (W, u): cutting_plane_model.addVar(vtype = GRB.BINARY)
+        for (W,u) in solution_set.keys() if (solution_set[W,u] > 0.01)
+    }
     
          
     K = { (u): cutting_plane_model.addVar(vtype = GRB.BINARY)
         for u in variable_range
     }
     
-#    ksum = cutting_plane_model.addVar()
-#    cutting_plane_model.addConstr(ksum == quicksum(K.values()))
-#    ksum.BranchPriority = 100
+    ksum = cutting_plane_model.addVar()
+    cutting_plane_model.addConstr(ksum == quicksum(K.values()))
+    ksum.BranchPriority = 100
+
     for u in variable_range:
         K[u].BranchPriority = 10
 
@@ -333,9 +313,6 @@ def print_parent_visualisation(res):
         child = parent_child_set[1]
         print(child, '<-', *parents)
 
-<<<<<<< HEAD
-reslut = solve(dataset, 2)
-=======
 
 def main(data_dir, approach, parent_limit):
     dataset = parse_dataset(data_dir)
@@ -356,4 +333,3 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
     main(args.datadir, args.approach, int(args.parentlimit))
->>>>>>> 072c3a2405f03cc05bcced66ca5a3cc3f7cc4285
