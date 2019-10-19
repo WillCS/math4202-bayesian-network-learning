@@ -4,6 +4,7 @@ from scoring.scoring import bdeu_scores, bdeu_scores_sig, score_parents
 from data import Dataset, parse_dataset
 from timeit import default_timer as timer
 from math_utils import binomial_coefficient, factorial, get_subsets_of_size, parse_number
+import random
 
 
 dataset = None
@@ -22,6 +23,7 @@ class Solver:
         self.parent_lim = parent_set_limit
         self.parent_sets = [s for s in get_subsets_of_size(data.num_variables, self.parent_lim)]
         self.scores = bdeu_scores(self.dataset, self.parent_sets)
+        print(self.scores[(),1])
 
         # Problem configs 
         self.solver_approach = approach
@@ -60,7 +62,7 @@ class Solver:
         model.setParam('LazyConstraints', 1)
         model.setParam('MIPGap', 0)
         if not verbose:
-            model.Params.OutputFlag = 0         #
+            model.Params.OutputFlag = 0        #
         return model
 
     @staticmethod
@@ -71,28 +73,28 @@ class Solver:
         cutting_plane_model.ModelSense = -1
         cutting_plane_model.Params.PoolSolutions = 200
         if not xtra_verbose:
-            cutting_plane_model.Params.OutputFlag = 1
+            cutting_plane_model.Params.OutputFlag = 0
         return cutting_plane_model
 
     def solve(self):
-
+        model = self.master_problem_model
         def find_cluster(m, where):
-            print(m)
-            if where == GRB.Callback.MIPSOL:
+            if where == GRB.Callback.MIPSOL or where == GRB.Callback.MIPNODE:
                 # Initialise model and get params
                 cutting_plane_model: Model = Model('Cutting plane problem')
                 cutting_plane_model.Params.PoolSearchMode = 1
                 cutting_plane_model.setParam('GURO_PAR_MINBPFORBID', 1)
                 cutting_plane_model.ModelSense = -1
                 cutting_plane_model.Params.PoolSolutions = 200
-                cutting_plane_model.Params.OutputFlag = 1
+                cutting_plane_model.Params.OutputFlag = 0
 
-                try:
+                if where == GRB.Callback.MIPSOL:
                     solution_set = {(W, u): yeet for ((W, u), yeet) in zip(I.keys(), model.cbGetSolution(I.values()))}
-                except AttributeError:
-                    solution_set = {}
-                sl = {(W, u): yeet for ((W, u), yeet) in zip(I.keys(), model.cbGetSolution(I.values())) if yeet > 0.9}
-
+                else:
+                    solution_set = {(W, u): yeet for ((W, u), yeet) in zip(I.keys(), model.cbGetNodeRel(I.values()))}
+#                sl2 = {(W, u): yeet for ((W, u), yeet) in zip(I.keys(), m.getSolution(I.values())) if yeet > 0.001}
+#                print(sl)
+#                print(sl2)
                 # solution_set = {(W, u): I[W, u].x for (W, u) in I.keys()}
                 variable_range = range(dataset.num_variables)
 
@@ -118,9 +120,9 @@ class Solver:
 
                 # CONSTRAINTS
                 # Objective value must be strictly less than 1
-                cutting_plane_model.addConstr(
+                cutting_plane_model.addLConstr(
                     quicksum(solution_set[W, u] * J[W, u] for (W, u) in J.keys()) - quicksum(
-                        K[u] for u in variable_range) >= -0.98)
+                        K[u] for u in variable_range) >= -0.99)
 
                 # These constraints come from (8) in the paper
                 acyclicity_constraints = {(W, u): cutting_plane_model.addLConstr(
@@ -137,38 +139,51 @@ class Solver:
 
                 nsols = cutting_plane_model.Solcount
                 cluster = set()
-                for i in range(nsols):
+                for i in range(1):
                     cutting_plane_model.Params.SolutionNumber = i
                     new_cluster = tuple([u for u in variable_range if K[u].x > 0.01])
                     cluster.add(new_cluster)
 
                 if cutting_plane_model.status == GRB.Status.INFEASIBLE:
                     print('yeeeeet')
-                    print(sl)
-                    print_parent_visualisation(sl)
+                    solution_set = [(W,u) for (W,u) in solution_set.keys() if solution_set[W,u] > 0.001]
+                    print(solution_set)
                     print('cluster', cluster)
+                    
+                 
 
                 for x in cluster:
                     model.cbLazy(
-                        quicksum(I[W, u] for u in x for W in parent_sets if intersection_size(W, x) < 1) <= 1)
+                        quicksum(I[W, u] for u in x for W in parent_sets if intersection_size(W, x) < 1) >= 1)
 
                     model.cbLazy(
-                        quicksum(I[W, u] for u in x for W in parent_sets if intersection_size(W, x) < 2) <= 2)
+                        quicksum(I[W, u] for u in x for W in parent_sets if intersection_size(W, x) < 2) >= 2)
 
 
         # Data
         variables = range(self.dataset.num_variables)
+        model.Params.Presolve = 0
+        model.setParam('LazyConstraints', 1)
+        model.setParam('MIPGap', 0)
 
         # Initlialise and setup model params
-        model = self.master_problem_model
 
         # Linear variables because we really only care about the linear relaxation
         I = {(W, u): model.addVar(vtype=GRB.BINARY)
+#        I = {(W, u): model.addVar(ub = 1)
              for W in self.parent_sets
              for u in variables}
 
         model.setObjective(
             quicksum(self.scores[W, u] * I[W, u] for (W,u) in I.keys()), GRB.MAXIMIZE)
+
+        x = tuple(variables)
+        model.addLConstr(
+            quicksum(I[W, u] for u in x for W in parent_sets if intersection_size(W, x) < 1) >= 1)
+
+        model.addLConstr(
+            quicksum(I[W, u] for u in x for W in parent_sets if intersection_size(W, x) < 2) >= 2)    
+            
 
         # Only one parent set
         self.master_convexity_constraints = \
@@ -184,6 +199,8 @@ class Solver:
 
             # optimise again with cutting constraints from previous iteration
             # model.reset()
+            model.optimize(find_cluster)
+            model.reset()
             model.optimize(find_cluster)
 
             # if new constraints from previous iteration render model infeasible:
@@ -264,7 +281,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Implementation of exact bayesian network construction via integer programming")
     parser.add_argument("-d", "--datadir", dest="datadir",
                         help="Directory path containing data",
-                        metavar="FILE", default='data/Mildew_100.data')
+                        metavar="FILE", default='data/asia_100.data')
     parser.add_argument("-p", "--parentlimit", dest="parentlimit",
                         help="limit to parent set size",
                         metavar="INT", default=2)
