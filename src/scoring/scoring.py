@@ -48,8 +48,8 @@ def bdeu_scores(dataset, parentsets):
 
 
 def bdeu_scores_sig(dataset, variable, parent):
-    print(variable)
-    print(parent)
+    # print(variable)
+    # print(parent)
     if parent:
         if len(parent) > 1:
             size = 0
@@ -65,7 +65,7 @@ def bdeu_scores_sig(dataset, variable, parent):
     score = 0
     i = 0
     for x in combo:
-        print(str(i) + " of " + str(size))
+        # print(str(i) + " of " + str(size))
         conditional_sample_size = sum([1 if sum([dataset.variables[y][i] for y in x]) == len(x)*dataset.variables[variable][i] else 0 for i in range(len(dataset.variables[variable]))])
         var_cardinality = dataset.variable_sizes[variable]
         score += lgamma(var_cardinality) - lgamma(conditional_sample_size + var_cardinality)
