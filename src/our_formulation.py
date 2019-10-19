@@ -7,12 +7,6 @@ from math_utils import binomial_coefficient, factorial, get_subsets_of_size, par
 import random
 
 
-dataset = None
-solver_approach = None
-parent_sets = None
-
-
-
 class Solver:
     """
     Problem solver class for the MIP.
@@ -45,18 +39,17 @@ class Solver:
         self.cluster_constr_k1 = {}
         self.cluster_constr_k2 = {}
 
-        global dataset
-        dataset = self.dataset
-
-        global solver_approach
-        solver_approach = self.solver_approach
-
-        global parent_sets
-        parent_sets = self.parent_sets
+        # track callback no.
+        self.callback_no = 0
+        self.c = 0
 
     @staticmethod
     def get_master_model(title):
         model = Model(title)
+
+        if not verbose:
+            model.Params.OutputFlag = 0        #
+
         model.ModelSense = -1               # maximise objective
         model.Params.PreCrush = 1           # since (always) adding cuts
         model.Params.CutPasses = 100000     # want to allow many cuts
@@ -64,24 +57,30 @@ class Solver:
         model.Params.MIPFocus = 2           # focus on proving optimality
         model.setParam('LazyConstraints', 1)
         model.setParam('MIPGap', 0)
-        if not verbose:
-            model.Params.OutputFlag = 0        #
+        model.Params.Presolve = 1
+
         return model
 
     @staticmethod
     def get_cutting_plane_model(title):
-        cutting_plane_model: Model = Model('Cutting Plane')
+        cutting_plane_model: Model = Model(title)
+
+        if not xtra_verbose:
+            cutting_plane_model.Params.OutputFlag = 0
+
         cutting_plane_model.Params.PoolSearchMode = 1
         cutting_plane_model.setParam('GURO_PAR_MINBPFORBID', 1)
         cutting_plane_model.ModelSense = -1
         cutting_plane_model.Params.PoolSolutions = 200
-        if not xtra_verbose:
-            cutting_plane_model.Params.OutputFlag = 0
+        cutting_plane_model.Params.Presolve = 1
+
+
         return cutting_plane_model
 
     def solve(self):
         model = self.master_problem_model
         
+        #made it so you can pick useing a callback or the old way
         if self.callback:
             def find_cluster(m, where):
                 if where == GRB.Callback.MIPSOL or where == GRB.Callback.MIPNODE:
@@ -246,6 +245,7 @@ class Solver:
         if genourway:
             added = optimal_extend_path(data.num_variable,{},data)
             #TODO the rest of this eeeee
+            #need to setp up I in a bit of a different way
         else:
             I = {(W, u): model.addVar(vtype=GRB.BINARY)
     #        I = {(W, u): model.addVar(ub = 1)
@@ -257,10 +257,10 @@ class Solver:
 
         x = tuple(variables)
         model.addLConstr(
-            quicksum(I[W, u] for u in x for W in parent_sets if intersection_size(W, x) < 1) >= 1)
+            quicksum(I[W, u] for u in x for W in self.parent_sets if intersection_size(W, x) < 1) >= 1)
 
         model.addLConstr(
-            quicksum(I[W, u] for u in x for W in parent_sets if intersection_size(W, x) < 2) >= 2)    
+            quicksum(I[W, u] for u in x for W in self.parent_sets if intersection_size(W, x) < 2) >= 2)
             
 
         # Only one parent set
@@ -298,6 +298,7 @@ class Solver:
                     for x in results:
                         added.append(extend_path(x,variables,score,data))
                     #TODO stuff hereerererrerererererere
+                    #need to add the new var to problem and const
                     if not any(added):
                         #exit somehow here
                     else:
@@ -334,14 +335,10 @@ class Solver:
                              quicksum(I[W, u] for u in x for W in self.parent_sets if self.intersection_size(W, x) < 2),
                              GRB.GREATER_EQUAL, 2)
 
-
-
-
     # Helper functions -------------------------------------------------------------------------------------------------
     @staticmethod
     def intersects(W, cluster) -> int:
         return 1 if len([v for v in cluster if v in W]) == 0 else 0
-
 
     @staticmethod
     def print_parent_visualisation(res):
@@ -424,15 +421,9 @@ def distence(var, parents, data,scoredict):
     return min(score, other)
 
 
-def print_parent_visualisation(res):
-    print('Resulting network:')
-    for parent_child_set in res:
-        parents = parent_child_set[0]
-        child = parent_child_set[1]
-        print(child, '<-', *parents)
-
 def intersection_size(W, cluster) -> int:
     return len([v for v in cluster if v in W])
+
 
 def main(data_dir, approach, parent_limit):
     dataset = parse_dataset(data_dir)
@@ -458,11 +449,15 @@ if __name__ == '__main__':
     parser.add_argument("-vv", "--xtra_verbose", dest='xtra_verbose',
                         help="modify output verbosity",
                         action="store_true")
+    parser.add_argument("-vvv", "--verbosest", dest='verbosest',
+                        help="modify output verbosity",
+                        action="store_true")
     args = parser.parse_args()
 
     # Print statements
     verbose = args.verbose
     xtra_verbose = args.verbose
+    verbosest = args.verbosest
 
     if xtra_verbose:
         verbose = True
