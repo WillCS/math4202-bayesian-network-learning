@@ -1,15 +1,12 @@
 from gurobipy import *
-import random
 import argparse
-from scoring.bdeu_score import bdeu_scores, bdeu_scores_sig, score_parents
+from scoring.scoring import bdeu_scores, bdeu_scores_sig, score_parents
 from data import Dataset, parse_dataset
 from timeit import default_timer as timer
 from math_utils import binomial_coefficient, factorial, get_subsets_of_size, parse_number
 
-random.seed(13)
 
-
-class Solver():
+class Solver:
     """
     Problem solver class for the MIP.
     """
@@ -23,7 +20,18 @@ class Solver():
         # Problem configs 
         self.solver_approach = solver_approach
         
+        # Models
         self.master_problem_model = self.get_master_model('Bayesian Network Learning')
+        self.cutting_plane_models = {}
+
+        # Master problem constraints
+        self.master_convexity_constraints = {}
+
+        # Cutting plane constraints
+        self.clusters = []
+        self.num_clusters = 0
+        self.cluster_constr_k1 = {}
+        self.cluster_constr_k2 = {}
 
     @staticmethod
     def get_master_model(title):
@@ -33,7 +41,8 @@ class Solver():
         model.Params.CutPasses = 100000     # want to allow many cuts
         model.Params.GomoryPasses = 100000  # want to allow many cuts
         model.Params.MIPFocus = 2           # focus on proving optimality
-        model.Params.OutputFlag = 0         #
+        if not verbose:
+            model.Params.OutputFlag = 0         #
         return model
 
     @staticmethod
@@ -54,28 +63,18 @@ class Solver():
         model = self.master_problem_model
 
         # Linear variables because we really only care about the linear relaxation
-        I = { (W, u): model.addVar(vtype=GRB.BINARY)
-                for W in self.parent_sets
-                for u in variables
-        }
+        I = {(W, u): model.addVar(vtype=GRB.BINARY)
+             for W in self.parent_sets
+             for u in variables}
 
         model.setObjective(
             quicksum(self.scores[W, u] * I[W, u] for (W,u) in I.keys()), GRB.MAXIMIZE)
 
         # Only one parent set
-        convexity_constraints = { u:
-                model.addConstr(quicksum(I[W, u] for W in self.parent_sets) == 1)
-                for u in variables
-        }
+        self.master_convexity_constraints = \
+            {u: model.addConstr(quicksum(I[W, u] for W in self.parent_sets) == 1) for u in variables}
 
-        cluster = []
-        cluster_const = {}
-        cluster_const2 = {}
-        plane = Model('Cutting Plane')
-
-        num_clusters = 0
-        start = timer()
-
+        master_start = timer()
         while True:
             # Initialise results from last iteration
             try:
@@ -89,33 +88,36 @@ class Solver():
 
             # if new constraints from previous iteration render model infeasible:
             if model.status == GRB.Status.INFEASIBLE:
+                print("Time taken: {}".format(round(timer() - master_start), 2))
                 print("Model infeasible")
-                exit(0)
+                return
 
             # If no changes to solution after optimisation, then complete
             diff = set([(u, W) for (W, u) in I.keys() if I[W, u].x > 0.001]).difference(last_graph)
             if not diff:
                 result = {(W, u): I[W, u].x for (W, u) in I.keys()}
                 result = [(W, u) for (W,u) in result.keys() if result[W, u] > 0.01]
-                self.print_parent_visualisation(result)
-                print("Objective value: {}\n".format(model.objVal))
 
-                end = timer()
-                print("Time taken: {}".format(end-start))
-                return cluster
+                self.print_parent_visualisation(result)
+                print("Objective value: {}".format(model.objVal))
+                print("Time taken: {}".format(round(timer()-master_start), 2))
+
+                return model
 
             result = {(W, u): I[W, u].x for (W, u) in I.keys()}
             new_cluster = self.find_cluster(self, variables, result)
 
             if new_cluster:
-                num_clusters += 1
+                self.num_clusters += 1
                 for x in new_cluster:
-                    cluster.append(x)
-                    cluster_const[x] = model.addLConstr(
-                        quicksum(I[W, u] for u in x for W in self.parent_sets if self.intersection_size(W, x) < 1), GRB.GREATER_EQUAL, 1)
+                    self.clusters.append(x)
+                    self.cluster_constr_k1[x] = model.addLConstr(
+                        quicksum(I[W, u] for u in x for W in self.parent_sets if self.intersection_size(W, x) < 1),
+                        GRB.GREATER_EQUAL, 1)
 
-                    cluster_const2[x] = model.addLConstr(
-                        quicksum(I[W, u] for u in x for W in self.parent_sets if self.intersection_size(W, x) < 2), GRB.GREATER_EQUAL, 2)
+                    self.cluster_constr_k2[x] = model.addLConstr(
+                        quicksum(I[W, u] for u in x for W in self.parent_sets if self.intersection_size(W, x) < 2),
+                        GRB.GREATER_EQUAL, 2)
 
     @staticmethod
     def find_cluster(self, variable_range, solution_set):
@@ -139,17 +141,17 @@ class Solver():
 
         # OBJECTIVE
         cutting_plane_model.setObjective(
-            quicksum(solution_set[W,u]*J[W, u] for (W,u) in J.keys()) - quicksum(K[u] for u in variable_range),
+            quicksum(solution_set[W,u]*J[W, u] for (W, u) in J.keys()) - quicksum(K[u] for u in variable_range),
             GRB.MINIMIZE)
 
         # CONSTRAINTS
         # Objective value must be strictly less than 1
         cutting_plane_model.addConstr(
-            quicksum(solution_set[W, u] * J[W, u] for (W,u) in J.keys()) - quicksum(K[u] for u in variable_range) >= -0.98)
+            quicksum(solution_set[W, u] * J[W, u] for (W, u) in J.keys()) - quicksum(K[u] for u in variable_range) >= -0.98)
 
         # These constraints come from (8) in the paper
         acyclicity_constraints = {(W, u): cutting_plane_model.addLConstr(
-                (1-J[W, u]) + quicksum(K[x] for x in W) >= 1) for (W,u) in J.keys()}
+                (1-J[W, u]) + quicksum(K[x] for x in W) >= 1) for (W,  u) in J.keys()}
 
         acyclicity_constraints2 = {(W, u): cutting_plane_model.addLConstr(
                 (1-J[W, u]) + K[u] >= 1) for (W,u) in J.keys()}
@@ -166,6 +168,8 @@ class Solver():
             cutting_plane_model.Params.SolutionNumber = i
             new_cluster = tuple([u for u in variable_range if K[u].x > 0.01 ])
             cluster.add(new_cluster)
+
+        self.cutting_plane_models[self.num_clusters] = cutting_plane_model
         return cluster
 
     # Helper functions -------------------------------------------------------------------------------------------------
@@ -179,6 +183,7 @@ class Solver():
 
     @staticmethod
     def print_parent_visualisation(res):
+        print('Resulting network:')
         for parent_child_set in res:
             parents = parent_child_set[0]
             child = parent_child_set[1]
@@ -189,7 +194,7 @@ def main(data_dir, approach, parent_limit):
     dataset = parse_dataset(data_dir)
 
     solver = Solver(dataset, parent_limit, approach)
-    solver.solve()
+    model = solver.solve()
 
 
 if __name__ == '__main__':
@@ -203,6 +208,11 @@ if __name__ == '__main__':
     parser.add_argument("-a", "--approach", dest="approach",
                         help="approach to take",
                         metavar="STR", default='branching')
+    parser.add_argument("-v", "--verbose", dest='verbose',
+                        help="modify output verbosity",
+                        action="store_true")
 
     args = parser.parse_args()
+    verbose = args.verbose
+    print('Verbose: {}'.format(verbose))
     main(args.datadir, args.approach, int(args.parentlimit))
