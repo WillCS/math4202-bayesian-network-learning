@@ -5,6 +5,8 @@ from scipy.special import comb
 
 from .caching import are_scores_cached, load_cached_scores, cache_scores
 
+random.seed(13)
+
 
 def bdeu_scores(dataset, parentsets):
     num_parents = max(len(s) for s in parentsets)
