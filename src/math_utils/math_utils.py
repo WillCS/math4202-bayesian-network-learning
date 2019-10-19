@@ -22,6 +22,7 @@ def binomial_coefficient(n: int, k: int) -> int:
             map((lambda i: (n + 1 - i) / i), k_range))
 
 def get_subsets_of_size(all_elements: Iterable, size: int) -> Iterable:
+    all_elements = range(all_elements)
     x = combinations(all_elements, 0)
     for i in range(1,size+1):
         x = chain(x, combinations(all_elements, i))

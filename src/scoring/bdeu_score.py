@@ -1,5 +1,5 @@
 import itertools
-
+import random
 from math import lgamma, log
 from scipy.special import comb
 
@@ -78,4 +78,17 @@ def bdeu_scores_sig(dataset, variable, parent):
         for state in range(dataset.variable_sizes[variable]):
             score += lgamma(dataset.variables[variable].count(state) + 1)
 
+    return score
+
+
+def score_parents(parent_sets, variable_set, scoring_type='RANDOM',scordict = None):
+    if scordict:
+        for W in parent_sets:
+            for u in variable_set:
+                scordict[W, u] = random.random()
+        return scordict
+    if scoring_type == 'VALUE':
+        score = {(W, u): u for W in parent_sets for u in variable_set}
+    else:
+        score = {(W, u): random.random() for W in parent_sets for u in variable_set}
     return score
