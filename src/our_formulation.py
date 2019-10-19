@@ -7,12 +7,6 @@ from math_utils import binomial_coefficient, factorial, get_subsets_of_size, par
 import random
 
 
-dataset = None
-solver_approach = None
-parent_sets = None
-
-
-
 class Solver:
     """
     Problem solver class for the MIP.
@@ -23,7 +17,6 @@ class Solver:
         self.parent_lim = parent_set_limit
         self.parent_sets = [s for s in get_subsets_of_size(data.num_variables, self.parent_lim)]
         self.scores = bdeu_scores(self.dataset, self.parent_sets)
-        print(self.scores[(),1])
 
         # Problem configs 
         self.solver_approach = approach
@@ -42,18 +35,17 @@ class Solver:
         self.cluster_constr_k1 = {}
         self.cluster_constr_k2 = {}
 
-        global dataset
-        dataset = self.dataset
-
-        global solver_approach
-        solver_approach = self.solver_approach
-
-        global parent_sets
-        parent_sets = self.parent_sets
+        # track callback no.
+        self.callback_no = 0
+        self.c = 0
 
     @staticmethod
     def get_master_model(title):
         model = Model(title)
+
+        if not verbose:
+            model.Params.OutputFlag = 0        #
+
         model.ModelSense = -1               # maximise objective
         model.Params.PreCrush = 1           # since (always) adding cuts
         model.Params.CutPasses = 100000     # want to allow many cuts
@@ -61,42 +53,42 @@ class Solver:
         model.Params.MIPFocus = 2           # focus on proving optimality
         model.setParam('LazyConstraints', 1)
         model.setParam('MIPGap', 0)
-        if not verbose:
-            model.Params.OutputFlag = 0        #
+        model.Params.Presolve = 1
+
         return model
 
     @staticmethod
     def get_cutting_plane_model(title):
-        cutting_plane_model: Model = Model('Cutting Plane')
+        cutting_plane_model: Model = Model(title)
+
+        if not xtra_verbose:
+            cutting_plane_model.Params.OutputFlag = 0
+
         cutting_plane_model.Params.PoolSearchMode = 1
         cutting_plane_model.setParam('GURO_PAR_MINBPFORBID', 1)
         cutting_plane_model.ModelSense = -1
         cutting_plane_model.Params.PoolSolutions = 200
-        if not xtra_verbose:
-            cutting_plane_model.Params.OutputFlag = 0
+        cutting_plane_model.Params.Presolve = 1
+
+
         return cutting_plane_model
 
     def solve(self):
         model = self.master_problem_model
+
         def find_cluster(m, where):
             if where == GRB.Callback.MIPSOL or where == GRB.Callback.MIPNODE:
+                self.callback_no += 1
+
                 # Initialise model and get params
-                cutting_plane_model: Model = Model('Cutting plane problem')
-                cutting_plane_model.Params.PoolSearchMode = 1
-                cutting_plane_model.setParam('GURO_PAR_MINBPFORBID', 1)
-                cutting_plane_model.ModelSense = -1
-                cutting_plane_model.Params.PoolSolutions = 200
-                cutting_plane_model.Params.OutputFlag = 0
+                cutting_plane_model: Model = self.get_cutting_plane_model("Cutting plane model")
 
                 if where == GRB.Callback.MIPSOL:
                     solution_set = {(W, u): yeet for ((W, u), yeet) in zip(I.keys(), model.cbGetSolution(I.values()))}
                 else:
                     solution_set = {(W, u): yeet for ((W, u), yeet) in zip(I.keys(), model.cbGetNodeRel(I.values()))}
-#                sl2 = {(W, u): yeet for ((W, u), yeet) in zip(I.keys(), m.getSolution(I.values())) if yeet > 0.001}
-#                print(sl)
-#                print(sl2)
-                # solution_set = {(W, u): I[W, u].x for (W, u) in I.keys()}
-                variable_range = range(dataset.num_variables)
+
+                variable_range = range(self.dataset.num_variables)
 
                 # VARIABLES
                 J = {(W, u): cutting_plane_model.addVar(
@@ -104,7 +96,7 @@ class Solver:
                 K = {u: cutting_plane_model.addVar(
                     vtype=GRB.BINARY) for u in variable_range}
 
-                if solver_approach == 'branching':
+                if self.solver_approach == 'branching':
                     ksum = cutting_plane_model.addVar()
                     cutting_plane_model.addConstr(ksum == quicksum(K.values()))
                     ksum.BranchPriority = 100
@@ -137,6 +129,15 @@ class Solver:
                 # OPTIMISE
                 cutting_plane_model.optimize()
 
+                if cutting_plane_model.status == GRB.Status.INFEASIBLE:
+                    if verbosest:
+                        print('Callback {} constraints infeasible'.format(self.callback_no))
+                    # solution_set = [(W,u) for (W,u) in solution_set.keys() if solution_set[W,u] > 0.001]
+                    # print(solution_set)
+                    return
+
+                if verbosest:
+                    print('Callback {} constraints solved'.format(self.callback_no))
                 nsols = cutting_plane_model.Solcount
                 cluster = set()
                 for i in range(1):
@@ -144,33 +145,22 @@ class Solver:
                     new_cluster = tuple([u for u in variable_range if K[u].x > 0.01])
                     cluster.add(new_cluster)
 
-                if cutting_plane_model.status == GRB.Status.INFEASIBLE:
-                    print('yeeeeet')
-                    solution_set = [(W,u) for (W,u) in solution_set.keys() if solution_set[W,u] > 0.001]
-                    print(solution_set)
-                    print('cluster', cluster)
-                    
-                 
-
                 for x in cluster:
                     model.cbLazy(
-                        quicksum(I[W, u] for u in x for W in parent_sets if intersection_size(W, x) < 1) >= 1)
+                        quicksum(I[W, u] for u in x for W in self.parent_sets if intersection_size(W, x) < 1) >= 1)
 
                     model.cbLazy(
-                        quicksum(I[W, u] for u in x for W in parent_sets if intersection_size(W, x) < 2) >= 2)
+                        quicksum(I[W, u] for u in x for W in self.parent_sets if intersection_size(W, x) < 2) >= 2)
+
+            else:
+                return
 
 
         # Data
         variables = range(self.dataset.num_variables)
-        model.Params.Presolve = 0
-        model.setParam('LazyConstraints', 1)
-        model.setParam('MIPGap', 0)
 
-        # Initlialise and setup model params
-
-        # Linear variables because we really only care about the linear relaxation
+        # Binary values to force relaxation
         I = {(W, u): model.addVar(vtype=GRB.BINARY)
-#        I = {(W, u): model.addVar(ub = 1)
              for W in self.parent_sets
              for u in variables}
 
@@ -179,10 +169,10 @@ class Solver:
 
         x = tuple(variables)
         model.addLConstr(
-            quicksum(I[W, u] for u in x for W in parent_sets if intersection_size(W, x) < 1) >= 1)
+            quicksum(I[W, u] for u in x for W in self.parent_sets if intersection_size(W, x) < 1) >= 1)
 
         model.addLConstr(
-            quicksum(I[W, u] for u in x for W in parent_sets if intersection_size(W, x) < 2) >= 2)    
+            quicksum(I[W, u] for u in x for W in self.parent_sets if intersection_size(W, x) < 2) >= 2)
             
 
         # Only one parent set
@@ -198,9 +188,6 @@ class Solver:
                 last_graph = set()
 
             # optimise again with cutting constraints from previous iteration
-            # model.reset()
-            model.optimize(find_cluster)
-            model.reset()
             model.optimize(find_cluster)
 
             # if new constraints from previous iteration render model infeasible:
@@ -211,45 +198,23 @@ class Solver:
 
             # If no changes to solution after optimisation, then complete
             diff = set([(u, W) for (W, u) in I.keys() if I[W, u].x > 0.001]).difference(last_graph)
+            print(diff)
             if not diff:
-                 result = {(W, u): I[W, u].x for (W, u) in I.keys()}
-                 result = [(W, u) for (W,u) in result.keys() if result[W, u] > 0.01]
+                result = {(W, u): I[W, u].x for (W, u) in I.keys()}
+                result = [(W, u) for (W,u) in result.keys() if result[W, u] > 0.01]
 
-                 # self.print_parent_visualisation(result)
-                 print("Objective value: {}".format(model.objVal))
-                 print("Time taken: {}".format(round(timer()-master_start), 2))
+                # self.print_parent_visualisation(result)
+                print("Objective value: {}".format(model.objVal))
+                print("Time taken: {}".format(round(timer()-master_start), 2))
 
-                 print_parent_visualisation(result)
+                self.print_parent_visualisation(result)
 
-                 return model
-
-
-            result = {(W, u): I[W, u].x for (W, u) in I.keys()}
-            # new_cluster = self.find_cluster(self, variables, result)
-
-
-
-
-            # if new_cluster:
-            #     self.num_clusters += 1
-            #     for x in new_cluster:
-            #         self.clusters.append(x)
-            #         self.cluster_constr_k1[x] = model.addLConstr(
-            #             quicksum(I[W, u] for u in x for W in self.parent_sets if self.intersection_size(W, x) < 1),
-            #             GRB.GREATER_EQUAL, 1)
-            #
-            #         self.cluster_constr_k2[x] = model.addLConstr(
-            #             quicksum(I[W, u] for u in x for W in self.parent_sets if self.intersection_size(W, x) < 2),
-            #             GRB.GREATER_EQUAL, 2)
-
-
-
+                return model
 
     # Helper functions -------------------------------------------------------------------------------------------------
     @staticmethod
     def intersects(W, cluster) -> int:
         return 1 if len([v for v in cluster if v in W]) == 0 else 0
-
 
     @staticmethod
     def print_parent_visualisation(res):
@@ -260,15 +225,9 @@ class Solver:
             print(child, '<-', *parents)
 
 
-def print_parent_visualisation(res):
-    print('Resulting network:')
-    for parent_child_set in res:
-        parents = parent_child_set[0]
-        child = parent_child_set[1]
-        print(child, '<-', *parents)
-
 def intersection_size(W, cluster) -> int:
     return len([v for v in cluster if v in W])
+
 
 def main(data_dir, approach, parent_limit):
     dataset = parse_dataset(data_dir)
@@ -294,11 +253,15 @@ if __name__ == '__main__':
     parser.add_argument("-vv", "--xtra_verbose", dest='xtra_verbose',
                         help="modify output verbosity",
                         action="store_true")
+    parser.add_argument("-vvv", "--verbosest", dest='verbosest',
+                        help="modify output verbosity",
+                        action="store_true")
     args = parser.parse_args()
 
     # Print statements
     verbose = args.verbose
     xtra_verbose = args.verbose
+    verbosest = args.verbosest
 
     if xtra_verbose:
         verbose = True

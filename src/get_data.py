@@ -15,7 +15,7 @@ download. It will only get files that have names that contain at least one arg.
 """
 
 URL = 'https://www.cs.york.ac.uk/aig/sw/gobnilp/data/'
-DATA_DIR_NAME = 'data'
+DATA_DIR_NAME = 'deet'
 
 files: Response = get(URL)
 
@@ -25,13 +25,14 @@ if files.status_code == 200:
     try:
         os.makedirs(DATA_DIR_NAME)
     except FileExistsError as error:
-        print('Why do you ALREADY have a folder named gobnilp???')
+        print('{} directory already exists'.format(DATA_DIR_NAME))
         exit(1)
 
     for line in files.text.splitlines():
         results = regex.search(line)
         if results is not None and len(results.group()) > 1:
             filename = str(results.group(1))
+            print(filename)
 
             ignore = True
             
