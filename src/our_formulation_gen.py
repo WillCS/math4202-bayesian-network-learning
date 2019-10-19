@@ -6,7 +6,7 @@ import numpy as np
 import heapq
 import itertools
 
-# from scoring import bdeu_scores,bdeu_scores_sig
+from scoring.bdeu_score import bdeu_scores_sig, bdeu_scores
 from data import Dataset, parse_dataset
 from math_utils import binomial_coefficient, factorial, get_subsets_of_size, parse_number
 
@@ -23,6 +23,8 @@ def solve(data: Dataset, parent_set_lim: int, col = False):
     emptyset = parent_sets[0]
     
     nodes = optimal_extend_path(variables,{},data)
+    print(nodes)
+    return
 
     #score = score_parents(parent_sets, variables)
     I = []
@@ -161,14 +163,14 @@ def optimal_extend_path(variables,score,data):
     added = {}
     for x in variables:
         added[x] = set()
-    for i in range(4):
+    for i in range(5):
         for x in variables:
             test = None
             print("var")
             print(x)
             parents = added[x]
-            if len(parents) == i:
-                for y in variables.difference(parents).difference(set([x])):
+            if len(parents) >= i:
+                for y in variables.difference(parents):
                     if distence(x, parents.union(set([y])),data,score) < distence(x, parents,data,score):
                         if test:
                             if distence(x, parents.union(set([y])),data,score) < distence(x, test,data,score):
