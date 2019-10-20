@@ -102,7 +102,7 @@ class Solver:
     def solve(self):
         model: Model = self.master_problem_model
 
-        def find_cluster_callback(model, where):
+        def find_cluster_callback(cmodel, where):
             """
             Callback method which utlises the solution set provided by the master problem as constraints to attempt
             to find cutting planes that remove cycles from the graph
@@ -161,7 +161,7 @@ class Solver:
                     quicksum(K[u] for u in variable_range) >= 2)
 
                 # OPTIMISE
-                def cutoff(cmodel,where):
+                def cutoff(cmodel, where):
                     """
                     callback funcation to end the cutting plan IP if it's been going on for too long
                     :param cmodel: the cuting plane model calling this callback
@@ -178,7 +178,7 @@ class Solver:
                 if cutting_plane_model.status == GRB.Status.INFEASIBLE:
                     if verbose:
                         print('Callback {}: constraints infeasible'.format(self.callback_no))
-                        solution_set = [(W,u) for (W,u) in solution_set.keys() if solution_set[W,u] > 0.001]
+                        solution_set = [(W, u) for (W, u) in solution_set.keys() if solution_set[W, u] > 0.001]
                         self.print_parent_visualisation(solution_set)
                     return
 
@@ -203,34 +203,37 @@ class Solver:
 
         # Linear variables because we really only care about the linear relaxation
         if self.optimalpath == "before":
-            added,self.scores = optimal_extend_path(self.dataset.num_variables ,{}, self.dataset)
+            added, self.scores = optimal_extend_path(self.dataset.num_variables, {}, self.dataset)
             self.parent_sets = set()
             I = {}
             for u in variables:
                 current = added[u].difference(set([u]))
-                it = itertools.combinations(current,0)
-                for i in range(1,len(current)):
-                    it = itertools.chain(it,itertools.combinations(current,i))
+                it = itertools.combinations(current, 0)
+                for i in range(1, len(current)):
+                    it = itertools.chain(it, itertools.combinations(current, i))
                 for x in it:
                     self.parent_sets.add(x)
-                    I[x,u] = model.addVar(vtype=GRB.BINARY)
-                    if not (x,u) in self.scores:
-                        self.scores[x,u] = bdeu_scores_sig(self.dataset, u, x)
+                    I[x, u] = model.addVar(vtype=GRB.BINARY)
+                    if not (x, u) in self.scores:
+                        self.scores[x, u] = bdeu_scores_sig(self.dataset, u, x)
         else:
             I = {(W, u): model.addVar(vtype=GRB.BINARY) for W in self.parent_sets for u in variables}
 
         model.setObjective(
-            quicksum(self.scores[W, u] * I[W, u] for (W,u) in I.keys()), GRB.MAXIMIZE)
+            quicksum(self.scores[W, u] * I[W, u] for (W, u) in I.keys()), GRB.MAXIMIZE)
 
         x = tuple(variables)
         model.addLConstr(
-            quicksum(I[W, u] for u in x for W in self.parent_sets if ((self.intersection_size(W, x) < 1) and ((W,u) in I))) >= 1)
+            quicksum(I[W, u] for u in x for W in self.parent_sets
+                     if ((self.intersection_size(W, x) < 1) and ((W, u) in I))) >= 1)
 
         model.addLConstr(
-            quicksum(I[W, u] for u in x for W in self.parent_sets if ((self.intersection_size(W, x) < 2) and ((W,u) in I))) >= 2)
+            quicksum(I[W, u] for u in x for W in self.parent_sets
+                     if ((self.intersection_size(W, x) < 2) and ((W, u) in I))) >= 2)
 
         self.master_convexity_constraints = \
-            {u: model.addConstr(quicksum(I[W, u] for W in self.parent_sets if (W,u) in I) == 1) for u in variables}
+            {u: model.addConstr(quicksum(I[W, u] for W in self.parent_sets
+                                         if (W,u) in I) == 1) for u in variables}
 
         master_start = timer()
 
@@ -285,33 +288,38 @@ class Solver:
                 
                         x = tuple(variables)
                         model.addLConstr(
-                            quicksum(I[W, u] for u in x for W in self.parent_sets if ((self.intersection_size(W, x) < 1) and ((W,u) in I))) >= 1)
+                            quicksum(I[W, u] for u in x for W in self.parent_sets
+                                     if ((self.intersection_size(W, x) < 1) and ((W,u) in I))) >= 1)
                 
                         model.addLConstr(
-                            quicksum(I[W, u] for u in x for W in self.parent_sets if ((self.intersection_size(W, x) < 2) and ((W,u) in I))) >= 2)
+                            quicksum(I[W, u] for u in x for W in self.parent_sets
+                                     if ((self.intersection_size(W, x) < 2) and ((W,u) in I))) >= 2)
                             
                 
                         # Only one parent set
                         self.master_convexity_constraints = \
-                            {u: model.addConstr(quicksum(I[W, u] for W in self.parent_sets if (W,u) in I) == 1) for u in variables}
+                            {u: model.addConstr(quicksum(I[W, u] for W in self.parent_sets
+                                                         if (W,u) in I) == 1) for u in variables}
                             
                         for x in self.clusters:
                             self.cluster_constr_k1[x] = model.addLConstr(
-                            quicksum(I[W, u] for u in x for W in self.parent_sets if ((self.intersection_size(W, x) < 1) and ((W,u) in I))) >= 1)
+                            quicksum(I[W, u] for u in x for W in self.parent_sets
+                                     if ((self.intersection_size(W, x) < 1) and ((W,u) in I))) >= 1)
 
                             self.cluster_constr_k2[x] = model.addLConstr(
-                            quicksum(I[W, u] for u in x for W in self.parent_sets if ((self.intersection_size(W, x) < 2) and ((W,u) in I))) >= 2)
+                            quicksum(I[W, u] for u in x for W in self.parent_sets
+                                     if ((self.intersection_size(W, x) < 2) and ((W,u) in I))) >= 2)
                 else:
-                     result = {(W, u): I[W, u].x for (W, u) in I.keys()}
-                     result = [(W, u) for (W,u) in result.keys() if result[W, u] > 0.01]
+                    result = {(W, u): I[W, u].x for (W, u) in I.keys()}
+                    result = [(W, u) for (W,u) in result.keys() if result[W, u] > 0.01]
     
-                     # self.print_parent_visualisation(result)
-                     print("Final Objective value: {}".format(model.objVal))
-                     print("Time taken: {} seconds".format((timer()-master_start)))
+                    # self.print_parent_visualisation(result)
+                    print("Final Objective value: {}".format(model.objVal))
+                    print("Time taken: {} seconds".format((timer()-master_start)))
     
-                     self.print_parent_visualisation(result)
+                    self.print_parent_visualisation(result)
     
-                     return model
+                    return model
 
             new_cluster = None
             if not self.callback:
@@ -323,10 +331,12 @@ class Solver:
                 for x in new_cluster:
                     self.clusters.append(x)
                     self.cluster_constr_k1[x] = model.addLConstr(
-                        quicksum(I[W, u] for u in x for W in self.parent_sets if ((self.intersection_size(W, x) < 1) and ((W,u) in I))), GRB.GREATER_EQUAL, 1)
+                        quicksum(I[W, u] for u in x for W in self.parent_sets
+                                 if ((self.intersection_size(W, x) < 1) and ((W, u) in I))), GRB.GREATER_EQUAL, 1)
 
                     self.cluster_constr_k2[x] = model.addLConstr(
-                        quicksum(I[W, u] for u in x for W in self.parent_sets if ((self.intersection_size(W, x) < 2) and ((W,u) in I))), GRB.GREATER_EQUAL, 2)
+                        quicksum(I[W, u] for u in x for W in self.parent_sets
+                                 if ((self.intersection_size(W, x) < 2) and ((W, u) in I))), GRB.GREATER_EQUAL, 2)
 
     def find_cluster(self, solution_set):
         """
@@ -360,7 +370,7 @@ class Solver:
         cutting_plane_model.addConstr(
             quicksum(solution_set[W, u] * J[W, u]for (W, u) in J.keys()) - quicksum(K[u] for u in variable_range) >= -0.98)
 
-        #    # These constraints come from (8) in the paper
+        # These constraints come from (8) in the paper
         acyclicity_constraints = \
             {(W, u): cutting_plane_model.addLConstr((1 - J[W, u]) + quicksum(K[x] for x in W) >= 1) for (W, u) in J.keys()}
 
@@ -413,8 +423,6 @@ def optimal_extend_path(variables, score, data, amount=5):
     for i in range(amount):
         for x in variables:
             test = None
-            # print("var")
-            # print(x)
             parents = added[x]
             if len(parents) >= i:
                 for y in variables.difference(parents):
@@ -426,9 +434,8 @@ def optimal_extend_path(variables, score, data, amount=5):
                             test = parents.union(set([y]))
                 if test:
                     parents = test
-                    # print(parents)
                     added[x] = parents
-    return added,score
+    return added, score
 
 
 def extend_path(nodeset, varset, score, data):
@@ -441,8 +448,8 @@ def extend_path(nodeset, varset, score, data):
     :return: the new parent set of this variable
     """
     parents = nodeset[0]
-    nodese = set(nodeset[0])
-    nodeset = (nodese, nodeset[1])
+    nodes = set(nodeset[0])
+    nodeset = (nodes, nodeset[1])
     expand = True
     size = 2
     added = set()
@@ -460,30 +467,31 @@ def extend_path(nodeset, varset, score, data):
                 this = this.union(set(x))
                 parents = tuple(sorted(tuple(this)))
                 expand = True
-                added.add((parents,nodeset[1]))
+                added.add((parents, nodeset[1]))
     return added
 
 
 def distance(var, parents, data, scoredict):
     """
-    :param var: the variable to calculate the distence at
-    :param parents: the parents to calcualte the distence at
-    :param data: the raw data of the problem
+    Calculates
+    :param var: the variable to calculate the distance at
+    :param parents: the parents to calculate the distance at
+    :param data: the parsed data of the problem
     :param scoredict: a dict for caching the score of parent-variable socring
-    :return: the distence in the topology order BN
+    :return: the distance in the topology order BN
     """
     if not parents or len(parents) <= 1:
-        if (var,tuple(parents)) in scoredict:
-            score = scoredict[var,tuple(parents)]
+        if (var, tuple(parents)) in scoredict:
+            score = scoredict[var, tuple(parents)]
         else:
-            score = bdeu_scores_sig(data,var,tuple(parents))
-            scoredict[var,tuple(parents)] = score
+            score = bdeu_scores_sig(data, var, tuple(parents))
+            scoredict[var, tuple(parents)] = score
         return score
-    if (var,tuple(parents)) in scoredict:
-        score = scoredict[var,tuple(parents)]
+    if (var, tuple(parents)) in scoredict:
+        score = scoredict[var, tuple(parents)]
     else:
-        score = bdeu_scores_sig(data,var,tuple(parents))
-        scoredict[var,tuple(parents)] = score
+        score = bdeu_scores_sig(data, var, tuple(parents))
+        scoredict[var, tuple(parents)] = score
     other = []
     for x in parents:
         other.append(distance(var, [x], data, scoredict))
@@ -499,10 +507,12 @@ def main(data_dir, parent_limit, branchvars, optimalpath, callback):
 
     solver = Solver(dataset, parent_limit, branchvars, optimalpath, callback)
     model = solver.solve()
+    # if model feasible you can print the final objval here
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description="Implementation of exact bayesian network construction via integer programming")
+    parser = argparse.ArgumentParser(description="Implementation of exact bayesian network construction "
+                                                 "via integer programming")
     parser.add_argument("-d", "--datadir", dest="datadir",
                         help="Directory path containing data",
                         metavar="FILE", default='data/mildew_100.data')
