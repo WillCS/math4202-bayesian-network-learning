@@ -259,7 +259,7 @@ class Solver:
     
                      # self.print_parent_visualisation(result)
                      print("Final Objective value: {}".format(model.objVal))
-                     print("Time taken: {}".format(round(timer()-master_start), 2))
+                     print("Time taken: {} seconds".format((timer()-master_start)))
     
                      self.print_parent_visualisation(result)
     
