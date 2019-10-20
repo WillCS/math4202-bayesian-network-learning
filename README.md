@@ -20,7 +20,11 @@ and Cussens et al.'s
  `get_data.py` will download all of the data used in the original papers into a new directory, `gobnilp`. Optional filters
  can be provided, in which case only files containing at lease one of the filter strings will be downloaded.
  
- Alternatively, data is provided in the repository, within the `data` directory 
+ Alternatively, data is provided in the repository, within the `data` directory.
+ 
+ #### Scores 
+ The data must be parsed then scored, since it is the scores that are generated from the data and used in the solver. 
+ For the ease of the user, the cached scores are provided in the `cached scores` directory of the project.   
 
 ## usage 
 The program may solve the problem with the given data through different implementations via commandline. 
