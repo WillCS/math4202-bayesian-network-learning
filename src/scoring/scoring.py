@@ -57,8 +57,8 @@ def bdeu_scores_sig(dataset, variable, parent):
     """
 
     :param dataset: parsed dataset
-    :param variable:
-    :param parent:
+    :param variable: the variable to calculate the score at
+    :param parent: the parent set to calcualte the score at
     :return: score of parent set and child family
     """
     if parent:

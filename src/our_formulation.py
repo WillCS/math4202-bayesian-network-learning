@@ -163,9 +163,9 @@ class Solver:
                 # OPTIMISE
                 def cutoff(cmodel,where):
                     """
-
-                    :param cmodel:
-                    :param where:
+                    callback funcation to end the cutting plan IP if it's been going on for too long
+                    :param cmodel: the cuting plane model calling this callback
+                    :param where: where in the model it's being called 
                     :return:
                     """
                     if where == GRB.Callback.MIP:
@@ -332,8 +332,8 @@ class Solver:
         """
         Utlises the solution set provided by the master problem as constraints to attempt
         to find cutting planes that remove cycles from the graph
-        :param solution_set:
-        :return:
+        :param solution_set: the current soultion
+        :return: a set of cluster constrains to add to the master problem
         """
         cutting_plane_model: Model = self.get_cutting_plane_model('Cutting plane model')
 
@@ -399,11 +399,11 @@ class Solver:
 def optimal_extend_path(variables, score, data, amount=5):
     """
 
-    :param variables:
-    :param score:
-    :param data:
-    :param amount:
-    :return:
+    :param variables: a count of how many nodes in the graph
+    :param score: a dict for caching the score of parent-variable socring
+    :param data: the raw data of the problem
+    :param amount: how many variables to solve up too
+    :return: a dict of variable to their superparent set
     """
     variables = set(range(variables))
     i = 0
@@ -434,11 +434,11 @@ def optimal_extend_path(variables, score, data, amount=5):
 def extend_path(nodeset, varset, score, data):
     """
 
-    :param nodeset:
-    :param varset:
-    :param score:
-    :param data:
-    :return:
+    :param nodeset: the variable-parent paring to attempt to extend
+    :param varset: the set of variables
+    :param score: a dict for caching the score of parent-variable socring
+    :param data: the raw data of the problem
+    :return: the new parent set of this variable
     """
     parents = nodeset[0]
     nodese = set(nodeset[0])
@@ -466,11 +466,11 @@ def extend_path(nodeset, varset, score, data):
 
 def distance(var, parents, data, scoredict):
     """
-    :param var:
-    :param parents:
-    :param data:
-    :param scoredict:
-    :return:
+    :param var: the variable to calculate the distence at
+    :param parents: the parents to calcualte the distence at
+    :param data: the raw data of the problem
+    :param scoredict: a dict for caching the score of parent-variable socring
+    :return: the distence in the topology order BN
     """
     if not parents or len(parents) <= 1:
         if (var,tuple(parents)) in scoredict:
