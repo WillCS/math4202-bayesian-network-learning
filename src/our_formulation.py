@@ -12,7 +12,7 @@ class Solver:
     """
     Problem solver class for the MIP.
     """
-    def __init__(self, data, parent_set_limit, approach, callback):
+    def __init__(self, data, parent_set_limit, branchvars, optimalpath, callback):
         # General data for the problem 
         self.dataset = data
         self.parent_lim = parent_set_limit
@@ -20,14 +20,14 @@ class Solver:
         self.genourway = False
         self.parent_sets = [s for s in get_subsets_of_size(data.num_variables, self.parent_lim)]
         self.scores = bdeu_scores(self.dataset, self.parent_sets)
-        self.callback = callback
 
         # Problem configs 
-        self.solver_approach = approach
-        
+        self.branchvars = branchvars
+        self.optimalpath = optimalpath
+        self.callback = callback
+
         # Models
         self.master_problem_model = self.get_master_model('Bayesian Network Learning')
-        model = self.master_problem_model
         self.cutting_plane_models = {}
 
         # Master problem constraints
@@ -41,14 +41,16 @@ class Solver:
 
         # track callback no.
         self.callback_no = 0
-        self.c = 0
+
+        # track iterations
+        self.iter = 0
 
     @staticmethod
     def get_master_model(title):
         model = Model(title)
 
-        if not verbose:
-            model.Params.OutputFlag = 0        #
+        if not xtra_verbose:
+            model.Params.OutputFlag = 0
 
         model.ModelSense = -1               # maximise objective
         model.Params.PreCrush = 1           # since (always) adding cuts
@@ -65,7 +67,7 @@ class Solver:
     def get_cutting_plane_model_callback(title):
         cutting_plane_model: Model = Model(title)
 
-        if not xtra_verbose:
+        if not verbosest:
             cutting_plane_model.Params.OutputFlag = 0
 
         cutting_plane_model.Params.PoolSearchMode = 1
@@ -80,7 +82,7 @@ class Solver:
     def get_cutting_plane_model(title):
         cutting_plane_model: Model = Model(title)
 
-        if not xtra_verbose:
+        if not verbosest:
             cutting_plane_model.Params.OutputFlag = 0
 
         cutting_plane_model.Params.OutputFlag = 0
@@ -95,7 +97,10 @@ class Solver:
         model: Model = self.master_problem_model
 
         def find_cluster_callback(m, where):
+
             if where == GRB.Callback.MIPSOL or where == GRB.Callback.MIPNODE:
+                self.callback_no += 1
+
                 # Initialise model and get params
                 cutting_plane_model: Model = self.get_cutting_plane_model_callback('Cutting plane problem')
 
@@ -115,10 +120,10 @@ class Solver:
                 K = {u: cutting_plane_model.addVar(
                     vtype=GRB.BINARY) for u in variable_range}
 
-                #if solver_approach == 'branching':
-                ksum = cutting_plane_model.addVar()
-                cutting_plane_model.addConstr(ksum == quicksum(K.values()))
-                ksum.BranchPriority = 100
+                if self.branchvars:
+                    ksum = cutting_plane_model.addVar()
+                    cutting_plane_model.addConstr(ksum == quicksum(K.values()))
+                    ksum.BranchPriority = 100
 
                 for u in variable_range:
                     K[u].BranchPriority = 10
@@ -153,11 +158,16 @@ class Solver:
 
                 cutting_plane_model.optimize(cutoff)
 
+
                 if cutting_plane_model.status == GRB.Status.INFEASIBLE:
-                    print('yeeeeet')
-                    solution_set = [(W,u) for (W,u) in solution_set.keys() if solution_set[W,u] > 0.001]
-                    print(solution_set)
+                    if verbose:
+                        print('Callback {}: constraints infeasible'.format(self.callback_no))
+                        solution_set = [(W,u) for (W,u) in solution_set.keys() if solution_set[W,u] > 0.001]
+                        self.print_parent_visualisation(solution_set)
                     return
+
+                if verbose:
+                    print('Callback {}: constraints solved'.format(self.callback_no))
 
                 nsols = cutting_plane_model.Solcount
                 cluster = set()
@@ -169,20 +179,17 @@ class Solver:
                 for x in cluster:
                     model.cbLazy(
                         quicksum(I[W, u] for u in x for W in self.parent_sets if self.intersection_size(W, x) < 1) >= 1)
-
                     model.cbLazy(
                         quicksum(I[W, u] for u in x for W in self.parent_sets if self.intersection_size(W, x) < 2) >= 2)
                         
         # Data
         variables: range = range(self.dataset.num_variables)
 
-        # Initlialise and setup model params
-
         # Linear variables because we really only care about the linear relaxation
-        if self.solver_approach == 'branching':
+        if self.optimalpath:
             added = optimal_extend_path(self.dataset.num_variables ,{}, self.dataset)
-            I = {(W, u): model.addVar(vtype=GRB.BINARY) for W in self.parent_sets for u in variables}
-
+            #  TODO: JUST to get this to run
+            # I = {(W, u): model.addVar(vtype=GRB.BINARY) for W in self.parent_sets for u in variables}
         else:
             I = {(W, u): model.addVar(vtype=GRB.BINARY) for W in self.parent_sets for u in variables}
 
@@ -202,7 +209,10 @@ class Solver:
             {u: model.addConstr(quicksum(I[W, u] for W in self.parent_sets) == 1) for u in variables}
 
         master_start = timer()
+
         while True:
+            self.iter += 1
+
             # Initialise results from last iteration
             try:
                 last_graph = set([(u, W) for (W, u) in I.keys() if I[W, u].x > 0.01])
@@ -220,8 +230,11 @@ class Solver:
             # if new constraints from previous iteration render model infeasible:
             if model.status == GRB.Status.INFEASIBLE:
                 print("Time taken: {}".format(round(timer() - master_start), 2))
-                print("Model infeasible")
+                print("Iter {}: Model infeasible".format(self.iter))
                 return
+
+            if verbose:
+                print("Iter {}: Objective Value {} reached".format(self.iter, model.objVal))
 
             # If no changes to solution after optimisation, then complete
             diff = set([(u, W) for (W, u) in I.keys() if I[W, u].x > 0.001]).difference(last_graph)
@@ -245,7 +258,7 @@ class Solver:
                      result = [(W, u) for (W,u) in result.keys() if result[W, u] > 0.01]
     
                      # self.print_parent_visualisation(result)
-                     print("Objective value: {}".format(model.objVal))
+                     print("Final Objective value: {}".format(model.objVal))
                      print("Time taken: {}".format(round(timer()-master_start), 2))
     
                      self.print_parent_visualisation(result)
@@ -281,9 +294,10 @@ class Solver:
              for u in variable_range
              }
 
-        ksum = cutting_plane_model.addVar()
-        cutting_plane_model.addConstr(ksum == quicksum(K.values()))
-        ksum.BranchPriority = 100
+        if self.branchvars:
+            ksum = cutting_plane_model.addVar()
+            cutting_plane_model.addConstr(ksum == quicksum(K.values()))
+            ksum.BranchPriority = 100
 
         for u in variable_range:
             K[u].BranchPriority = 10
@@ -332,7 +346,7 @@ class Solver:
 
 
 # Helper functions -------------------------------------------------------------------------------------------------
-def optimal_extend_path(variables,score,data):
+def optimal_extend_path(variables, score, data):
     variables = set(range(variables))
     i = 0
     added = {}
@@ -407,10 +421,10 @@ def distance(var, parents, data, scoredict):
     return min(score, other)
 
 
-def main(data_dir, approach, parent_limit, callback):
+def main(data_dir, parent_limit, branchvars, optimalpath, callback):
     dataset = parse_dataset(data_dir)
 
-    solver = Solver(dataset, parent_limit, approach, callback)
+    solver = Solver(dataset, parent_limit, branchvars, optimalpath, callback)
     model = solver.solve()
 
 
@@ -422,18 +436,21 @@ if __name__ == '__main__':
     parser.add_argument("-p", "--parentlimit", dest="parentlimit",
                         help="limit to parent set size",
                         metavar="INT", default=2)
-    parser.add_argument("-a", "--approach", dest="approach",
-                        help="approach to take",
-                        metavar="STR", default='branching')
-    parser.add_argument("-v", "--verbose", dest='verbose',
-                        help="modify output verbosity",
+    parser.add_argument("-b", "--branchvars", dest='branchvars',
+                        help="optimise via configuring branching variables",
+                        action="store_true")
+    parser.add_argument("-o", "--optimalpath", dest='optimalpath',
+                        help="use optimal path extension",
                         action="store_true")
     parser.add_argument("-c", "--callback", dest='callback',
                         help="modify output verbosity",
                         action="store_true")
-    parser.add_argument("-vv", "--xtra_verbose", dest='xtra_verbose',
+    parser.add_argument("-v", "--verbose", dest='verbose',
                         help="modify output verbosity",
-                        action="store_true")
+                        action="store_true", default=False)
+    parser.add_argument("-vv", "--extra_verbose", dest='xtra_verbose',
+                        help="modify output verbosity",
+                        action="store_true", default=False)
     parser.add_argument("-vvv", "--verbosest", dest='verbosest',
                         help="modify output verbosity",
                         action="store_true")
@@ -441,15 +458,24 @@ if __name__ == '__main__':
 
     # Print statements
     verbose = args.verbose
-    xtra_verbose = args.verbose
+    xtra_verbose = args.xtra_verbose
     verbosest = args.verbosest
 
     if xtra_verbose:
         verbose = True
 
+    if verbosest:
+        verbose = True
+        xtra_verbose = True
+
     print('Verbose: {}'.format(verbose))
-    print('{} formulation'.format(args.approach))
+    print('Extra Verbose: {}'.format(xtra_verbose))
+    # print('{} formulation'.format(args.approach))
     if args.callback:
         print('Using callbacks')
+    if args.branchvars:
+        print('Configuring branch variables')
+    if args.optimalpath:
+        print('Using optimal path calculations')
 
-    main(args.datadir, args.approach, int(args.parentlimit), args.callback)
+    main(args.datadir, int(args.parentlimit), args.branchvars, args.optimalpath, args.callback)
