@@ -40,11 +40,13 @@ class Solver:
         # track callback no.
         self.callback_no = 0
 
-        # track iterations
+        # track number of iterations
         self.iter = 0
 
     @staticmethod
     def get_master_model(title):
+        """Initialised master problem model and configure """
+
         model = Model(title)
 
         if not xtra_verbose:
@@ -63,6 +65,11 @@ class Solver:
 
     @staticmethod
     def get_cutting_plane_model_callback(title):
+        """
+        Initialise cutting plane subproblem model used in the solution
+        callback and configure
+        """
+
         cutting_plane_model: Model = Model(title)
 
         if not verbosest:
@@ -78,6 +85,7 @@ class Solver:
 
     @staticmethod
     def get_cutting_plane_model(title):
+        """ Initialise cutting plane subproblem model and configure """
         cutting_plane_model: Model = Model(title)
 
         if not verbosest:
@@ -94,7 +102,14 @@ class Solver:
     def solve(self):
         model: Model = self.master_problem_model
 
-        def find_cluster_callback(m, where):
+        def find_cluster_callback(model, where):
+            """
+            Callback method which utlises the solution set provided by the master problem as constraints to attempt
+            to find cutting planes that remove cycles from the graph
+            :param model: master problem model being optimised with this callback
+            :param where: case for callback
+            :return:
+            """
 
             if where == GRB.Callback.MIPSOL or where == GRB.Callback.MIPNODE:
                 self.callback_no += 1
@@ -106,10 +121,7 @@ class Solver:
                     solution_set = {(W, u): yeet for ((W, u), yeet) in zip(I.keys(), model.cbGetSolution(I.values()))}
                 else:
                     solution_set = {(W, u): yeet for ((W, u), yeet) in zip(I.keys(), model.cbGetNodeRel(I.values()))}
-#                sl2 = {(W, u): yeet for ((W, u), yeet) in zip(I.keys(), m.getSolution(I.values())) if yeet > 0.001}
-#                print(sl)
-#                print(sl2)
-                # solution_set = {(W, u): I[W, u].x for (W, u) in I.keys()}
+
                 variable_range = range(self.dataset.num_variables)
 
                 # VARIABLES
@@ -150,13 +162,19 @@ class Solver:
 
                 # OPTIMISE
                 def cutoff(cmodel,where):
+                    """
+
+                    :param cmodel:
+                    :param where:
+                    :return:
+                    """
                     if where == GRB.Callback.MIP:
                         if cutting_plane_model.cbGet(GRB.Callback.RUNTIME) > 120:
                             cutting_plane_model.terminate()
 
                 cutting_plane_model.optimize(cutoff)
 
-
+                # If cutting plane model is infeasible, quit and return
                 if cutting_plane_model.status == GRB.Status.INFEASIBLE:
                     if verbose:
                         print('Callback {}: constraints infeasible'.format(self.callback_no))
@@ -197,11 +215,7 @@ class Solver:
                     self.parent_sets.add(x)
                     I[x,u] = model.addVar(vtype=GRB.BINARY)
                     if not (x,u) in self.scores:
-                        self.scores[x,u] = bdeu_scores_sig(self.dataset,u,x)
-                
-                    
-            #  TODO: JUST to get this to run
-            # I = {(W, u): model.addVar(vtype=GRB.BINARY) for W in self.parent_sets for u in variables}
+                        self.scores[x,u] = bdeu_scores_sig(self.dataset, u, x)
         else:
             I = {(W, u): model.addVar(vtype=GRB.BINARY) for W in self.parent_sets for u in variables}
 
@@ -214,9 +228,7 @@ class Solver:
 
         model.addLConstr(
             quicksum(I[W, u] for u in x for W in self.parent_sets if ((self.intersection_size(W, x) < 2) and ((W,u) in I))) >= 2)
-            
 
-        # Only one parent set
         self.master_convexity_constraints = \
             {u: model.addConstr(quicksum(I[W, u] for W in self.parent_sets if (W,u) in I) == 1) for u in variables}
 
@@ -232,14 +244,13 @@ class Solver:
                 last_graph = set()
 
             # optimise again with cutting constraints from previous iteration
-            # model.reset()
             if self.callback:
                 model.optimize(find_cluster_callback)
             else:
                 model.reset()
                 model.optimize()
 
-            # if new constraints from previous iteration render model infeasible:
+            # if new constraints from previous iteration render model infeasible, return
             if model.status == GRB.Status.INFEASIBLE:
                 print("Time taken: {}".format(round(timer() - master_start), 2))
                 print("Iter {}: Model infeasible".format(self.iter))
@@ -248,16 +259,21 @@ class Solver:
             if verbose:
                 print("Iter {}: Objective Value {} reached".format(self.iter, model.objVal))
 
-            # If no changes to solution after optimisation, then complete
+            # Check for changes to graph after iteration
             diff = set([(u, W) for (W, u) in I.keys() if I[W, u].x > 0.001]).difference(last_graph)
+
             if not diff:
                 if self.optimalpath == "after":
                     result = {(W, u): I[W, u].x for (W, u) in I.keys()}
                     added = []
                     for x in result:
+                        if verbose:
+                            print(added)
                         added.append(extend_path(x,set(tuple(variables)), self.scores, self.dataset))
                     #TODO stuff hereerererrerererererere
                     #need to add the new var to problem and const
+
+                    # Check if any elements in path are true 
                     if not any(added):
                         self.optimalpath = "none"
                     else:
@@ -285,9 +301,6 @@ class Solver:
 
                             self.cluster_constr_k2[x] = model.addLConstr(
                             quicksum(I[W, u] for u in x for W in self.parent_sets if ((self.intersection_size(W, x) < 2) and ((W,u) in I))) >= 2)
-                            
-                        
-                        
                 else:
                      result = {(W, u): I[W, u].x for (W, u) in I.keys()}
                      result = [(W, u) for (W,u) in result.keys() if result[W, u] > 0.01]
@@ -316,18 +329,20 @@ class Solver:
                         quicksum(I[W, u] for u in x for W in self.parent_sets if ((self.intersection_size(W, x) < 2) and ((W,u) in I))), GRB.GREATER_EQUAL, 2)
 
     def find_cluster(self, solution_set):
+        """
+        Utlises the solution set provided by the master problem as constraints to attempt
+        to find cutting planes that remove cycles from the graph
+        :param solution_set:
+        :return:
+        """
         cutting_plane_model: Model = self.get_cutting_plane_model('Cutting plane model')
 
         variable_range = range(self.dataset.num_variables)
 
         # J(W -> u) variables for sub problem
-        J = {(W, u): cutting_plane_model.addVar(vtype=GRB.BINARY)
-             for (W, u) in solution_set.keys() if solution_set[W, u] > 0.01
-             }
+        J = {(W, u): cutting_plane_model.addVar(vtype=GRB.BINARY) for (W, u) in solution_set.keys() if solution_set[W, u] > 0.01}
 
-        K = {(u): cutting_plane_model.addVar(vtype=GRB.BINARY)
-             for u in variable_range
-             }
+        K = {u: cutting_plane_model.addVar(vtype=GRB.BINARY) for u in variable_range}
 
         if self.branchvars:
             ksum = cutting_plane_model.addVar()
@@ -381,7 +396,15 @@ class Solver:
 
 
 # Helper functions -------------------------------------------------------------------------------------------------
-def optimal_extend_path(variables, score, data, amount = 5):
+def optimal_extend_path(variables, score, data, amount=5):
+    """
+
+    :param variables:
+    :param score:
+    :param data:
+    :param amount:
+    :return:
+    """
     variables = set(range(variables))
     i = 0
     added = {}
@@ -408,19 +431,27 @@ def optimal_extend_path(variables, score, data, amount = 5):
     return added,score
 
 
-def extend_path(nodeset,varset,score,data):
+def extend_path(nodeset, varset, score, data):
+    """
+
+    :param nodeset:
+    :param varset:
+    :param score:
+    :param data:
+    :return:
+    """
     parents = nodeset[0]
     nodese = set(nodeset[0])
-    nodeset = (nodese,nodeset[1])
-    expend = True
+    nodeset = (nodese, nodeset[1])
+    expand = True
     size = 2
     added = set()
     nodes = varset.difference(nodeset[0])
     if nodeset[1] in nodes:
         nodes.remove(nodeset[1])
     i = 0
-    while expend:
-        expend = False
+    while expand:
+        expand = False
         size += 1
         for x in nodes:
             i += 1
@@ -428,12 +459,19 @@ def extend_path(nodeset,varset,score,data):
                 this = set(parents)
                 this = this.union(set(x))
                 parents = tuple(sorted(tuple(this)))
-                expend = True
+                expand = True
                 added.add((parents,nodeset[1]))
     return added
 
 
 def distance(var, parents, data, scoredict):
+    """
+    :param var:
+    :param parents:
+    :param data:
+    :param scoredict:
+    :return:
+    """
     if not parents or len(parents) <= 1:
         if (var,tuple(parents)) in scoredict:
             score = scoredict[var,tuple(parents)]

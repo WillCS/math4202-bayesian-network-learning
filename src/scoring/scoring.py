@@ -9,6 +9,12 @@ random.seed(13)
 
 
 def bdeu_scores(dataset, parentsets):
+    """
+    Calculates bdeu scores for the given dataset and parent sets
+    :param dataset: parsed dataset
+    :param parentsets: candidate parent sets
+    :return: dictionary of scores {((Parent Nodes, Child): Score)}
+    """
     num_parents = max(len(s) for s in parentsets)
     if are_scores_cached(dataset.dataset_name, num_parents):
        return load_cached_scores(dataset.dataset_name, num_parents, dataset.num_variables, parentsets)
@@ -48,8 +54,13 @@ def bdeu_scores(dataset, parentsets):
 
 
 def bdeu_scores_sig(dataset, variable, parent):
-    # print(variable)
-    # print(parent)
+    """
+
+    :param dataset: parsed dataset
+    :param variable:
+    :param parent:
+    :return: score of parent set and child family
+    """
     if parent:
         if len(parent) > 1:
             size = 0
@@ -84,6 +95,15 @@ def bdeu_scores_sig(dataset, variable, parent):
 
 
 def score_parents(parent_sets, variable_set, scoring_type='RANDOM',scordict = None):
+    """
+    Score parent-child      family sets based on random values or the actual value of the child node.
+    :param parent_sets:     candidate parent sets, W
+    :param variable_set:    candidate variables, u
+    :param scoring_type:    {RANDOM, VALUE} With RANDOM being a random score assigned,
+                            and VALUE being the numerical node label
+    :param scordict:        existing score dictionary, can be None
+    :return: new updated scores, in scoredict
+    """
     if scordict:
         for W in parent_sets:
             for u in variable_set:
