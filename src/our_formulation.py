@@ -4,7 +4,6 @@ from scoring.scoring import bdeu_scores, bdeu_scores_sig, score_parents
 from data import Dataset, parse_dataset
 from timeit import default_timer as timer
 from math_utils import binomial_coefficient, factorial, get_subsets_of_size, parse_number
-import random
 import itertools
 
 
@@ -16,10 +15,9 @@ class Solver:
         # General data for the problem 
         self.dataset = data
         self.parent_lim = parent_set_limit
-        self.gentheirway = False
-        self.genourway = False
         self.parent_sets = [s for s in get_subsets_of_size(data.num_variables, self.parent_lim)]
-        self.scores = bdeu_scores(self.dataset, self.parent_sets)
+        self.scores = bdeu_scores(self.dataset, list(self.parent_sets))
+        self.parent_sets = set([s for s in get_subsets_of_size(data.num_variables, self.parent_lim)])
 
         # Problem configs 
         self.branchvars = branchvars
@@ -171,7 +169,7 @@ class Solver:
 
                 nsols = cutting_plane_model.Solcount
                 cluster = set()
-                for i in range(1):
+                for i in range(nsols):
                     cutting_plane_model.Params.SolutionNumber = i
                     new_cluster = tuple([u for u in variable_range if K[u].x > 0.01])
                     cluster.add(new_cluster)
@@ -186,8 +184,22 @@ class Solver:
         variables: range = range(self.dataset.num_variables)
 
         # Linear variables because we really only care about the linear relaxation
-        if self.optimalpath:
-            added = optimal_extend_path(self.dataset.num_variables ,{}, self.dataset)
+        if self.optimalpath == "before":
+            added,self.scores = optimal_extend_path(self.dataset.num_variables ,{}, self.dataset)
+            self.parent_sets = set()
+            I = {}
+            for u in variables:
+                current = added[u].difference(set([u]))
+                it = itertools.combinations(current,0)
+                for i in range(1,len(current)):
+                    it = itertools.chain(it,itertools.combinations(current,i))
+                for x in it:
+                    self.parent_sets.add(x)
+                    I[x,u] = model.addVar(vtype=GRB.BINARY)
+                    if not (x,u) in self.scores:
+                        self.scores[x,u] = bdeu_scores_sig(self.dataset,u,x)
+                
+                    
             #  TODO: JUST to get this to run
             # I = {(W, u): model.addVar(vtype=GRB.BINARY) for W in self.parent_sets for u in variables}
         else:
@@ -198,15 +210,15 @@ class Solver:
 
         x = tuple(variables)
         model.addLConstr(
-            quicksum(I[W, u] for u in x for W in self.parent_sets if self.intersection_size(W, x) < 1) >= 1)
+            quicksum(I[W, u] for u in x for W in self.parent_sets if ((self.intersection_size(W, x) < 1) and ((W,u) in I))) >= 1)
 
         model.addLConstr(
-            quicksum(I[W, u] for u in x for W in self.parent_sets if self.intersection_size(W, x) < 2) >= 2)
+            quicksum(I[W, u] for u in x for W in self.parent_sets if ((self.intersection_size(W, x) < 2) and ((W,u) in I))) >= 2)
             
 
         # Only one parent set
         self.master_convexity_constraints = \
-            {u: model.addConstr(quicksum(I[W, u] for W in self.parent_sets) == 1) for u in variables}
+            {u: model.addConstr(quicksum(I[W, u] for W in self.parent_sets if (W,u) in I) == 1) for u in variables}
 
         master_start = timer()
 
@@ -238,20 +250,43 @@ class Solver:
 
             # If no changes to solution after optimisation, then complete
             diff = set([(u, W) for (W, u) in I.keys() if I[W, u].x > 0.001]).difference(last_graph)
-            if not diff and not self.gentheirway:
-                if self.gentheirway:
+            if not diff:
+                if self.optimalpath == "after":
                     result = {(W, u): I[W, u].x for (W, u) in I.keys()}
                     added = []
                     for x in result:
-                        added.append(extend_path(x,variables, self.scores, self.dataset))
+                        added.append(extend_path(x,set(tuple(variables)), self.scores, self.dataset))
                     #TODO stuff hereerererrerererererere
                     #need to add the new var to problem and const
                     if not any(added):
-                        pass
-                        #exit somehow here
+                        self.optimalpath = "none"
                     else:
-                        pass
-                        #add all vars and const
+                        for x in added:
+                            self.parent_sets.add(x[0])
+                            I[x] = model.addVar(vtype=GRB.BINARY)
+                        model.setObjective(
+                        quicksum(self.scores[W, u] * I[W, u] for (W,u) in I.keys()), GRB.MAXIMIZE)
+                
+                        x = tuple(variables)
+                        model.addLConstr(
+                            quicksum(I[W, u] for u in x for W in self.parent_sets if ((self.intersection_size(W, x) < 1) and ((W,u) in I))) >= 1)
+                
+                        model.addLConstr(
+                            quicksum(I[W, u] for u in x for W in self.parent_sets if ((self.intersection_size(W, x) < 2) and ((W,u) in I))) >= 2)
+                            
+                
+                        # Only one parent set
+                        self.master_convexity_constraints = \
+                            {u: model.addConstr(quicksum(I[W, u] for W in self.parent_sets if (W,u) in I) == 1) for u in variables}
+                            
+                        for x in self.clusters:
+                            self.cluster_constr_k1[x] = model.addLConstr(
+                            quicksum(I[W, u] for u in x for W in self.parent_sets if ((self.intersection_size(W, x) < 1) and ((W,u) in I))) >= 1)
+
+                            self.cluster_constr_k2[x] = model.addLConstr(
+                            quicksum(I[W, u] for u in x for W in self.parent_sets if ((self.intersection_size(W, x) < 2) and ((W,u) in I))) >= 2)
+                            
+                        
                         
                 else:
                      result = {(W, u): I[W, u].x for (W, u) in I.keys()}
@@ -275,10 +310,10 @@ class Solver:
                 for x in new_cluster:
                     self.clusters.append(x)
                     self.cluster_constr_k1[x] = model.addLConstr(
-                        quicksum(I[W, u] for u in x for W in self.parent_sets if self.intersection_size(W, x) < 1), GRB.GREATER_EQUAL, 1)
+                        quicksum(I[W, u] for u in x for W in self.parent_sets if ((self.intersection_size(W, x) < 1) and ((W,u) in I))), GRB.GREATER_EQUAL, 1)
 
                     self.cluster_constr_k2[x] = model.addLConstr(
-                        quicksum(I[W, u] for u in x for W in self.parent_sets if self.intersection_size(W, x) < 2), GRB.GREATER_EQUAL, 2)
+                        quicksum(I[W, u] for u in x for W in self.parent_sets if ((self.intersection_size(W, x) < 2) and ((W,u) in I))), GRB.GREATER_EQUAL, 2)
 
     def find_cluster(self, solution_set):
         cutting_plane_model: Model = self.get_cutting_plane_model('Cutting plane model')
@@ -346,13 +381,13 @@ class Solver:
 
 
 # Helper functions -------------------------------------------------------------------------------------------------
-def optimal_extend_path(variables, score, data):
+def optimal_extend_path(variables, score, data, amount = 5):
     variables = set(range(variables))
     i = 0
     added = {}
     for x in variables:
-        added[x] = set()
-    for i in range(5):
+        added[x] = set([x])
+    for i in range(amount):
         for x in variables:
             test = None
             # print("var")
@@ -370,7 +405,7 @@ def optimal_extend_path(variables, score, data):
                     parents = test
                     # print(parents)
                     added[x] = parents
-    return added
+    return added,score
 
 
 def extend_path(nodeset,varset,score,data):
@@ -387,9 +422,9 @@ def extend_path(nodeset,varset,score,data):
     while expend:
         expend = False
         size += 1
-        for x in itertools.combinations(varset,3):
+        for x in nodes:
             i += 1
-            if distance(x, parents, data, score) <= distance(x, tuple(varset.difference(x)), data, score):
+            if distance(x, parents, data, score) == distance(x, tuple(nodes.difference(set([x]))), data, score):
                 this = set(parents)
                 this = this.union(set(x))
                 parents = tuple(sorted(tuple(this)))
@@ -439,9 +474,9 @@ if __name__ == '__main__':
     parser.add_argument("-b", "--branchvars", dest='branchvars',
                         help="optimise via configuring branching variables",
                         action="store_true")
-    parser.add_argument("-o", "--optimalpath", dest='optimalpath',
-                        help="use optimal path extension",
-                        action="store_true")
+    parser.add_argument("-o", "--optimalpath", dest="optimalpath",
+                        help="how to extend path = {before, after,none}",
+                        metavar="STR", default="none", choices=['before', 'after', 'none'])
     parser.add_argument("-c", "--callback", dest='callback',
                         help="modify output verbosity",
                         action="store_true")
@@ -476,6 +511,6 @@ if __name__ == '__main__':
     if args.branchvars:
         print('Configuring branch variables')
     if args.optimalpath:
-        print('Using optimal path calculations')
+        print('Using optimal path calculation ' + args.optimalpath)
 
     main(args.datadir, int(args.parentlimit), args.branchvars, args.optimalpath, args.callback)
