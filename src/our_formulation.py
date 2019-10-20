@@ -476,7 +476,7 @@ if __name__ == '__main__':
                         action="store_true")
     parser.add_argument("-o", "--optimalpath", dest="optimalpath",
                         help="how to extend path = {before, after,none}",
-                        metavar="STR", default="before", choices=['before', 'after', 'none'])
+                        metavar="STR", default="none", choices=['before', 'after', 'none'])
     parser.add_argument("-c", "--callback", dest='callback',
                         help="modify output verbosity",
                         action="store_true")
