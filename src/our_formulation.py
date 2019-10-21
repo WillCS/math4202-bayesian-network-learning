@@ -43,6 +43,9 @@ class Solver:
         # track number of iterations
         self.iter = 0
 
+        # track time taken in optimal path generation
+        self.op_path_time = 0
+
     @staticmethod
     def get_master_model(title):
         """Initialised master problem model and configure """
@@ -203,6 +206,7 @@ class Solver:
 
         # Linear variables because we really only care about the linear relaxation
         if self.optimalpath == "before":
+            op_timer = timer()
             added, self.scores = optimal_extend_path(self.dataset.num_variables, {}, self.dataset)
             self.parent_sets = set()
             I = {}
@@ -216,6 +220,8 @@ class Solver:
                     I[x, u] = model.addVar(vtype=GRB.BINARY)
                     if not (x, u) in self.scores:
                         self.scores[x, u] = bdeu_scores_sig(self.dataset, u, x)
+            self.op_path_time = (timer() - op_timer)
+            print('Optimal path extension took {} second'.format(self.op_path_time))
         else:
             I = {(W, u): model.addVar(vtype=GRB.BINARY) for W in self.parent_sets for u in variables}
 
@@ -270,8 +276,6 @@ class Solver:
                     result = {(W, u): I[W, u].x for (W, u) in I.keys()}
                     added = []
                     for x in result:
-                        if verbose:
-                            print(added)
                         added.append(extend_path(x,set(tuple(variables)), self.scores, self.dataset))
                     #TODO stuff hereerererrerererererere
                     #need to add the new var to problem and const
@@ -408,13 +412,17 @@ class Solver:
 # Helper functions -------------------------------------------------------------------------------------------------
 def optimal_extend_path(variables, score, data, amount=5):
     """
+    Determine the optimal parent set for all nodes via scores
 
-    :param variables: a count of how many nodes in the graph
-    :param score: a dict for caching the score of parent-variable socring
-    :param data: the raw data of the problem
-    :param amount: how many variables to solve up too
-    :return: a dict of variable to their superparent set
+    Arg:
+        variables: a count of how many nodes in the graph
+        score: a dict for caching the score of parent-variable socring
+        data: the raw data of the problem
+        amount: how many variables to solve up too
+    Returns:
+         a dict of variable to their superparent set
     """
+
     variables = set(range(variables))
     i = 0
     added = {}
@@ -440,12 +448,15 @@ def optimal_extend_path(variables, score, data, amount=5):
 
 def extend_path(nodeset, varset, score, data):
     """
+    Determine the best path for the node parent family set
 
-    :param nodeset: the variable-parent paring to attempt to extend
-    :param varset: the set of variables
-    :param score: a dict for caching the score of parent-variable socring
-    :param data: the raw data of the problem
-    :return: the new parent set of this variable
+    Args:
+        nodeset: the node-parent paring to attempt to extend
+        varset: the set of node/ variables
+        score: a dict for caching the score of parent-variable socring
+        data: the raw data of the problem
+
+    Returns the new parent set of this variable
     """
     parents = nodeset[0]
     nodes = set(nodeset[0])
@@ -503,11 +514,25 @@ def distance(var, parents, data, scoredict):
 
 
 def main(data_dir, parent_limit, branchvars, optimalpath, callback):
+    """
+    Driver function for the solver.
+    Args:
+        data_dir: string path for the data file
+        parent_limit: int: maximum number of parents in each parent set in the network
+        branchvars: bool: whether to use branch variables in the solve or not
+        optimalpath: {None, 'before', 'after'} whether to use branch variables before solving the problem,
+                        or optimising the problem further after solving the master problem, or not at all.
+        callback: bool: whether to use callbacks to solve the problem
+
+    Returns:
+        the model of the master problem solved (or infeasible model if problem not feasible).
+    """
     dataset = parse_dataset(data_dir)
 
     solver = Solver(dataset, parent_limit, branchvars, optimalpath, callback)
     model = solver.solve()
     # if model feasible you can print the final objval here
+    return model
 
 
 if __name__ == '__main__':
